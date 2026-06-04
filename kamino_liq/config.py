@@ -28,7 +28,19 @@ EMPTY_PUBKEY = "11111111111111111111111111111111"
 # Symbols treated as price-stable in the market-crash scenario.
 STABLE_SYMBOLS = frozenset(
     {
-        "USDC", "USDT", "PYUSD", "USDG", "USDH", "FDUSD", "DAI",
-        "USDS", "USDE", "SUSDE", "USDY", "EURC", "USDR", "USD*",
+        "USDC",
+        "USDT",
+        "PYUSD",
+        "USDG",
+        "USDH",
+        "FDUSD",
+        "DAI",
+        "USDS",
+        "USDE",
+        "SUSDE",
+        "USDY",
+        "EURC",
+        "USDR",
+        "USD*",
     }
 )

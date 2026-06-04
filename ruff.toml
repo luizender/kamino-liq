@@ -1,0 +1,21 @@
+line-length = 100
+
+exclude = [
+    ".venv",
+    "venv",
+    ".git",
+    "__pycache__",
+    "node_modules",
+    "data",
+]
+
+[lint]
+extend-select = ["E", "F", "I", "B", "ANN", "C4", "UP", "SIM"]
+
+[lint.flake8-bugbear]
+# Typer's API uses Option()/Argument() as parameter defaults by design, the same
+# way ruff already allowlists FastAPI's Depends()/Query() for B008.
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[lint.per-file-ignores]
+"tests/**/*.py" = ["ANN"]

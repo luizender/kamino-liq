@@ -39,7 +39,10 @@ def _version_callback(show: bool) -> None:
 @app.callback()
 def _root(
     _version: bool = typer.Option(
-        False, "--version", callback=_version_callback, is_eager=True,
+        False,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
         help="Show the version and exit.",
     ),
 ) -> None:

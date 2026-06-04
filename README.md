@@ -151,13 +151,17 @@ tests/            unit tests for the liquidation math
 ```bash
 pip install -e ".[dev]"          # or: pip install -r requirements-dev.txt
 
+ruff format kamino_liq tests     # format (line length 100)
+ruff check kamino_liq tests      # lint (E/F/I/B/ANN/C4/UP/SIM)
 pytest                           # run the unit tests
 pytest --cov=kamino_liq          # with coverage (enforced at 100%)
 pylint kamino_liq                # static analysis (expects a clean 10.00/10)
 ```
 
 The suite mocks all HTTP/RPC calls, so it runs offline and deterministically.
-Coverage and pylint settings both live in `pyproject.toml`.
+Ruff settings live in `ruff.toml`; coverage and pylint settings in `pyproject.toml`.
+If you use Claude Code, `.claude/` ships hooks that run ruff on each edit and the
+full gate (ruff + pytest + pylint) when a turn ends.
 
 ## Disclaimer
 

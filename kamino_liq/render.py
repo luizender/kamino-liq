@@ -27,8 +27,8 @@ def _health_color(health_factor: float) -> str:
     return "red"
 
 
-def _table(title: str = "", **kwargs) -> Table:
-    return Table(title=title or None, box=box.SIMPLE_HEAD, title_justify="left", **kwargs)
+def _table(title: str = "") -> Table:
+    return Table(title=title or None, box=box.SIMPLE_HEAD, title_justify="left")
 
 
 def render_markets(markets: list[Market]) -> None:
@@ -115,8 +115,8 @@ def _render_body(position: Position, show_crash: bool) -> None:
 
 
 def _render_overrides(original: Position, simulated: Position) -> None:
-    assets = list(zip(original.collateral, simulated.collateral)) + list(
-        zip(original.borrows, simulated.borrows)
+    assets = list(zip(original.collateral, simulated.collateral, strict=True)) + list(
+        zip(original.borrows, simulated.borrows, strict=True)
     )
     rows = [(before, after) for before, after in assets if before.price != after.price]
     if not rows:
@@ -146,14 +146,20 @@ def _render_holdings(position: Position) -> None:
         table.add_column(name, justify="right")
     for c in position.collateral:
         table.add_row(
-            c.symbol, f"{c.amount:,.4f}", _usd(c.price), _usd(c.value),
+            c.symbol,
+            f"{c.amount:,.4f}",
+            _usd(c.price),
+            _usd(c.value),
             f"{c.liquidation_threshold:.0%}",
         )
     table.add_section()
     for b in position.borrows:
         table.add_row(
-            f"[red]{b.symbol} (debt)[/red]", f"{b.amount:,.4f}", _usd(b.price),
-            f"[red]-{_usd(b.value)}[/red]", "",
+            f"[red]{b.symbol} (debt)[/red]",
+            f"{b.amount:,.4f}",
+            _usd(b.price),
+            f"[red]-{_usd(b.value)}[/red]",
+            "",
         )
     console.print(table)
 
@@ -183,11 +189,19 @@ def _render_single_asset(position: Position) -> None:
         table.add_column(name, justify="right")
     for level in single_asset_levels(position):
         if level.is_safe:
-            table.add_row(level.collateral.symbol, _usd(level.collateral.price),
-                          "[green]safe at $0[/green]", "—")
+            table.add_row(
+                level.collateral.symbol,
+                _usd(level.collateral.price),
+                "[green]safe at $0[/green]",
+                "—",
+            )
         else:
-            table.add_row(level.collateral.symbol, _usd(level.collateral.price),
-                          _usd(level.price), f"{level.buffer:.1%} drop")
+            table.add_row(
+                level.collateral.symbol,
+                _usd(level.collateral.price),
+                _usd(level.price),
+                f"{level.buffer:.1%} drop",
+            )
     console.print(table)
 
 
