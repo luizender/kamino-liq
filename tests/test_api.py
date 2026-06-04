@@ -14,34 +14,28 @@ def make_client(payload, base_url="https://api.example.com"):
     return KaminoClient(base_url=base_url, session=session), session
 
 
-def test_markets_parsed() -> None:
-    client, session = make_client(
-        [{"name": "Main", "lendingMarket": "MKT", "isPrimary": True, "description": "d"}]
-    )
-    markets = client.markets()
-    assert markets[0].address == "MKT"
-    assert session.get.call_args.args[0].endswith("/v2/kamino-market")
+def test_market_url() -> None:
+    client, session = make_client({"name": "Main", "lendingMarket": "MKT"})
+    result = client.market("MKT")
+    assert result["name"] == "Main"
+    assert session.get.call_args.args[0].endswith("/v2/kamino-market/MKT")
 
 
-def test_obligations_url() -> None:
-    client, session = make_client([{"obligationAddress": "OB"}])
-    assert client.obligations("MKT", "WALLET") == [{"obligationAddress": "OB"}]
-    assert session.get.call_args.args[0].endswith("/kamino-market/MKT/users/WALLET/obligations")
+def test_portfolio_returns_lending_loans() -> None:
+    client, session = make_client({"lending": [{"address": "OB", "marketAddress": "MKT"}]})
+    assert client.portfolio("WALLET") == [{"address": "OB", "marketAddress": "MKT"}]
+    assert session.get.call_args.args[0].endswith("/portfolio/WALLET")
 
 
-def test_reserves_indexed_by_address() -> None:
-    client, _ = make_client(
-        [{"reserve": "R", "liquidityToken": "SOL", "liquidityTokenMint": "M", "maxLtv": "0.7"}]
-    )
-    reserves = client.reserves("MKT")
-    assert reserves["R"].symbol == "SOL"
-    assert reserves["R"].max_ltv == 0.7
+def test_portfolio_empty_without_lending_section() -> None:
+    client, _ = make_client({})
+    assert client.portfolio("WALLET") == []
 
 
-def test_prices_mapped_by_mint() -> None:
-    client, session = make_client([{"mint": "M", "usdPrice": "1.5", "token": "X"}])
-    assert client.prices() == {"M": 1.5}
-    assert session.get.call_args.kwargs["params"] == {"env": "mainnet-beta", "source": "scope"}
+def test_loan_url() -> None:
+    client, session = make_client({"loanInfo": {}})
+    assert client.loan("OB") == {"loanInfo": {}}
+    assert session.get.call_args.args[0].endswith("/klend/loans/OB")
 
 
 def test_base_url_is_trimmed_and_default_session_built() -> None:

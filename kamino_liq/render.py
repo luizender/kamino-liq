@@ -1,38 +1,15 @@
-"""Rich rendering of markets, reserves, RPC nodes, and positions."""
+"""Rich rendering of a wallet's positions and liquidation scenarios."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
-
 from rich import box
 from rich.console import Console
-from rich.progress import BarColumn, MofNCompleteColumn, Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
 from .liquidation import CrashStatus, crash_scenario, single_asset_levels
-from .models import Market, Position, Reserve, RpcNode
+from .models import Position
 
 console = Console()
-
-
-@contextmanager
-def scan_progress(total: int) -> Iterator[Callable[[], None]]:
-    """Transient progress bar over `total` markets; yields a per-market tick.
-
-    The yielded callback is thread-safe, so the parallel market scan can advance
-    it from worker threads. On a non-terminal (piped) console it renders nothing.
-    """
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[dim]Scanning markets…[/dim]"),
-        BarColumn(),
-        MofNCompleteColumn(),
-        console=console,
-        transient=True,
-    ) as progress:
-        task = progress.add_task("scan", total=total)
-        yield lambda: progress.advance(task)
 
 
 _HEALTHY = 1.5
@@ -53,58 +30,6 @@ def _health_color(health_factor: float) -> str:
 
 def _table(title: str = "") -> Table:
     return Table(title=title or None, box=box.SIMPLE_HEAD, title_justify="left")
-
-
-def render_markets(markets: list[Market]) -> None:
-    """Print a table of Kamino markets."""
-    table = _table("Kamino markets")
-    table.add_column("Name")
-    table.add_column("Primary", justify="center")
-    table.add_column("Market pubkey")
-    table.add_column("Description")
-    for market in markets:
-        table.add_row(
-            market.name,
-            "✓" if market.is_primary else "",
-            market.address,
-            market.description,
-        )
-    console.print(table)
-
-
-def render_reserves(market_name: str, reserves: list[Reserve]) -> None:
-    """Print a market's reserves with LTV, liquidation threshold, and decimals."""
-    table = _table(f"{market_name} — reserves")
-    table.add_column("Asset")
-    table.add_column("Max LTV", justify="right")
-    table.add_column("Liq. threshold", justify="right")
-    table.add_column("Decimals", justify="right")
-    table.add_column("Mint")
-    for reserve in sorted(reserves, key=lambda r: r.symbol.lower()):
-        table.add_row(
-            reserve.symbol,
-            f"{reserve.max_ltv:.0%}",
-            f"{reserve.liquidation_threshold:.0%}",
-            str(reserve.decimals),
-            reserve.mint,
-        )
-    console.print(table)
-
-
-def render_rpcs(nodes: list[RpcNode], source: str, limit: int) -> None:
-    """Print discovered cluster RPC endpoints (up to ``limit``)."""
-    table = _table(f"Cluster RPC endpoints (via {source})")
-    table.add_column("RPC endpoint")
-    table.add_column("Version")
-    table.add_column("Validator")
-    for node in nodes[:limit]:
-        table.add_row(f"http://{node.rpc}", node.version, node.pubkey)
-    console.print(table)
-    console.print(
-        f"[dim]Showing {min(limit, len(nodes))} of {len(nodes)} nodes advertising RPC. "
-        "These are gossip-discovered and may be rate-limited or reject public traffic; "
-        "prefer a dedicated provider for --rpc.[/dim]"
-    )
 
 
 def render_position(position: Position, show_crash: bool = True) -> None:

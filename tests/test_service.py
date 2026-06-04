@@ -1,110 +1,87 @@
 """Tests for the orchestration layer (wallet -> Position objects)."""
 
 from kamino_liq import service
-from kamino_liq.config import EMPTY_PUBKEY, FRACTION_SCALE
-from kamino_liq.models import Market, Reserve
-
-MARKET = Market("Main Market", "MKT", is_primary=True, description="")
-RESERVES = {
-    "resSOL": Reserve("resSOL", "SOL", "mintSOL", max_ltv=0.7),
-    "resUSDC": Reserve("resUSDC", "USDC", "mintUSDC", max_ltv=0.8),
-}
-ENRICHED = {
-    "resSOL": Reserve("resSOL", "SOL", "mintSOL", 0.7, liquidation_threshold=0.75, decimals=9),
-    "resUSDC": Reserve("resUSDC", "USDC", "mintUSDC", 0.8, liquidation_threshold=0.85, decimals=6),
-}
-PRICES = {"mintSOL": 100.0, "mintUSDC": 1.0}
 
 
-def _patch_enrich(monkeypatch):
-    monkeypatch.setattr(service, "enrich_reserves", lambda rpc, reserves: ENRICHED)
-
-
-def test_build_position_amounts_and_prices(monkeypatch, fake_kamino, obligation):
-    _patch_enrich(monkeypatch)
-    ob = obligation(
-        has_debt=True,
-        debt_value="5.0",
-        deposits=[
-            {"depositReserve": "resSOL", "depositedAmount": str(10 * 10**9)},
-            {"depositReserve": EMPTY_PUBKEY, "depositedAmount": "0"},  # filtered out
-        ],
-        borrows=[{"borrowReserve": "resUSDC", "borrowedAmountSf": str(5 * 10**6 * FRACTION_SCALE)}],
-    )
-    client = fake_kamino(
-        markets=[MARKET], reserves=RESERVES, obligations_map={"MKT": [ob]}, prices=PRICES
-    )
-
-    (result,) = list(service.load_positions(client, rpc=None, wallet="W", markets=[MARKET]))
-    market, position = result
-    assert market is MARKET
-    assert position.collateral[0].symbol == "SOL"
-    assert position.collateral[0].amount == 10
-    assert position.collateral[0].value == 1000
-    assert position.collateral[0].liquidation_threshold == 0.75
-    assert position.borrows[0].amount == 5
-    assert position.debt_value == 5.0
-
-
-def test_collateral_scales_ctokens_by_exchange_rate(monkeypatch, fake_kamino, obligation):
-    enriched = {
-        "resSOL": Reserve(
-            "resSOL", "SOL", "mintSOL", 0.7, 0.75, decimals=9, collateral_exchange_rate=1.2
-        )
+def _deposit(name, amount, price, liq):
+    return {
+        "tokenName": name,
+        "tokenAmount": str(amount),
+        "tokenPrice": price,
+        "liquidationLtv": liq,
     }
-    monkeypatch.setattr(service, "enrich_reserves", lambda rpc, reserves: enriched)
-    ob = obligation(
-        has_debt=True,
-        debt_value="5.0",
-        deposits=[{"depositReserve": "resSOL", "depositedAmount": str(10 * 10**9)}],
+
+
+def _borrow(name, amount, price, borrow_factor):
+    return {
+        "tokenName": name,
+        "tokenAmount": str(amount),
+        "tokenPrice": price,
+        "tokenValue": amount * price,
+        "borrowFactor": borrow_factor,
+    }
+
+
+def test_load_positions_builds_from_loan_detail(fake_kamino, loan_detail):
+    detail = loan_detail(
+        deposits=[_deposit("SOL", 10, 100.0, 0.75)],
+        borrows=[_borrow("USDC", 500, 1.0, 1)],
     )
     client = fake_kamino(
-        markets=[MARKET], reserves=RESERVES, obligations_map={"MKT": [ob]}, prices=PRICES
+        portfolio=[{"address": "OB", "marketAddress": "MKT"}], loans={"OB": detail}
     )
 
-    ((_, position),) = list(service.load_positions(client, None, "W", [MARKET]))
-    assert position.collateral[0].amount == 12  # 10 cTokens * 1.2 underlying
-    assert position.collateral[0].value == 1200
-
-
-def test_market_without_active_obligations_is_skipped(monkeypatch, fake_kamino, obligation):
-    _patch_enrich(monkeypatch)
-    inactive = obligation(has_debt=False, deposits=[], borrows=[])
-    client = fake_kamino(markets=[MARKET], reserves=RESERVES, obligations_map={"MKT": [inactive]})
-    assert list(service.load_positions(client, None, "W", [MARKET])) == []
-
-
-def test_load_positions_scans_every_market_and_ticks_progress(monkeypatch, fake_kamino, obligation):
-    _patch_enrich(monkeypatch)
-    other = Market("Altcoins Market", "MKT2", is_primary=False, description="")
-    ob = obligation(
-        has_debt=True,
-        debt_value="5.0",
-        deposits=[{"depositReserve": "resSOL", "depositedAmount": str(10 * 10**9)}],
-        borrows=[{"borrowReserve": "resUSDC", "borrowedAmountSf": str(5 * 10**6 * FRACTION_SCALE)}],
+    (position,) = list(service.load_positions(client, "W"))
+    assert position.market_name == "Main Market"
+    assert position.address == "OB"
+    sol = position.collateral[0]
+    assert (sol.symbol, sol.amount, sol.price, sol.liquidation_threshold) == (
+        "SOL",
+        10.0,
+        100.0,
+        0.75,
     )
-    # Only the first market holds a position; the second must still be scanned.
+    assert position.borrows[0].amount == 500.0
+    assert position.debt_value == 500.0  # 500 value * borrowFactor 1
+
+
+def test_debt_value_applies_borrow_factor(fake_kamino, loan_detail):
+    detail = loan_detail(
+        deposits=[_deposit("SOL", 10, 100.0, 0.75)],
+        borrows=[_borrow("ETH", 1, 2000.0, 1.5)],
+    )
     client = fake_kamino(
-        markets=[MARKET, other], reserves=RESERVES, obligations_map={"MKT": [ob]}, prices=PRICES
+        portfolio=[{"address": "OB", "marketAddress": "MKT"}], loans={"OB": detail}
     )
-    ticks = {"n": 0}
 
-    def tick() -> None:
-        ticks["n"] += 1
-
-    results = list(service.load_positions(client, None, "W", [MARKET, other], on_scan=tick))
-    assert ticks["n"] == 2  # both markets scanned, one tick each
-    ((market, position),) = results
-    assert market is MARKET
-    assert position.collateral[0].symbol == "SOL"
+    (position,) = list(service.load_positions(client, "W"))
+    assert position.debt_value == 3000.0  # value 2000 * borrowFactor 1.5
 
 
-def test_is_active_variants(obligation):
-    with_debt = obligation(has_debt=True, deposits=[], borrows=[])
-    only_deposit = obligation(
-        has_debt=False, deposits=[{"depositReserve": "resSOL", "depositedAmount": "1"}]
+def test_empty_portfolio(fake_kamino):
+    client = fake_kamino(portfolio=[], loans={})
+    assert list(service.load_positions(client, "W")) == []
+
+
+def test_market_name_cached(fake_kamino, loan_detail):
+    """Two loans in the same market should only call market() once."""
+    detail = loan_detail(deposits=[_deposit("SOL", 1, 10.0, 0.8)])
+    client = fake_kamino(
+        portfolio=[
+            {"address": "OB1", "marketAddress": "MKT"},
+            {"address": "OB2", "marketAddress": "MKT"},
+        ],
+        loans={"OB1": detail, "OB2": detail},
     )
-    empty = obligation(has_debt=False, deposits=[], borrows=[])
-    assert service._is_active(with_debt) is True
-    assert service._is_active(only_deposit) is True
-    assert service._is_active(empty) is False
+
+    calls = {"n": 0}
+    orig_market = client.market
+
+    def counting_market(pubkey):
+        calls["n"] += 1
+        return orig_market(pubkey)
+
+    client.market = counting_market
+    positions = list(service.load_positions(client, "W"))
+    assert len(positions) == 2
+    assert calls["n"] == 1  # cached

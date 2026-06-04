@@ -6,12 +6,7 @@ from collections.abc import Iterable
 
 import pytest
 
-from kamino_liq.models import Borrow, Collateral, Market, Position, Reserve
-
-
-@pytest.fixture
-def market() -> Market:
-    return Market("Main Market", "MKT", is_primary=True, description="Primary")
+from kamino_liq.models import Borrow, Collateral, Position
 
 
 @pytest.fixture
@@ -38,40 +33,33 @@ def fake_kamino():
     """Factory for a duck-typed KaminoClient with canned responses."""
 
     class _FakeKamino:
-        def __init__(self, markets=(), reserves=None, obligations_map=None, prices=None) -> None:
-            self._markets = list(markets)
-            self._reserves: dict[str, Reserve] = reserves or {}
-            self._obligations: dict[str, list[dict]] = obligations_map or {}
-            self._prices: dict[str, float] = prices or {}
+        def __init__(self, portfolio=(), loans=None, market_names=None) -> None:
+            self._portfolio: list[dict] = list(portfolio)
+            self._loans: dict[str, dict] = loans or {}
+            self._market_names: dict[str, str] = market_names or {}
 
-        def markets(self) -> list[Market]:
-            return self._markets
+        def market(self, pubkey: str) -> dict:
+            return {"name": self._market_names.get(pubkey, "Main Market")}
 
-        def reserves(self, market: str) -> dict[str, Reserve]:
-            return self._reserves
+        def portfolio(self, wallet: str) -> list[dict]:
+            return self._portfolio
 
-        def obligations(self, market: str, wallet: str) -> list[dict]:
-            return self._obligations.get(market, [])
-
-        def prices(self) -> dict[str, float]:
-            return self._prices
+        def loan(self, obligation: str) -> dict:
+            return self._loans[obligation]
 
     return _FakeKamino
 
 
 @pytest.fixture
-def obligation():
-    """Factory for a Kamino obligation record."""
+def loan_detail():
+    """Factory for a Kamino /klend/loans/{pubkey} response."""
 
-    def _make(*, has_debt=True, deposits=(), borrows=(), debt_value="0", address="OB"):
+    def _make(*, deposits=(), borrows=()):
         return {
-            "obligationAddress": address,
-            "state": {
-                "hasDebt": has_debt,
-                "deposits": list(deposits),
-                "borrows": list(borrows),
-            },
-            "refreshedStats": {"userTotalBorrowBorrowFactorAdjusted": debt_value},
+            "loanInfo": {
+                "collateral": {"deposits": list(deposits)},
+                "debt": {"borrows": list(borrows)},
+            }
         }
 
     return _make

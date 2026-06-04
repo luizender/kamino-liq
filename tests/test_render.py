@@ -7,7 +7,7 @@ from rich.console import Console
 
 from kamino_liq import render
 from kamino_liq.liquidation import apply_price_overrides
-from kamino_liq.models import Borrow, Collateral, Market, Position, Reserve, RpcNode
+from kamino_liq.models import Borrow, Collateral, Position
 
 
 @pytest.fixture
@@ -19,27 +19,6 @@ def out(monkeypatch):
 
 def position(collateral, debt_value, borrows=()):
     return Position("Main Market", "OBLIGATION", tuple(collateral), tuple(borrows), debt_value)
-
-
-def test_render_markets(out) -> None:
-    markets = [Market("Main", "MKT", True, "primary"), Market("JLP", "M2", False, "iso")]
-    render.render_markets(markets)
-    assert "Kamino markets" in out.getvalue()
-    assert "Main" in out.getvalue()
-
-
-def test_render_reserves(out) -> None:
-    render.render_reserves("Main", [Reserve("R", "SOL", "mintSOL", 0.7, 0.75, 9)])
-    text = out.getvalue()
-    assert "SOL" in text
-    assert "75%" in text
-
-
-def test_render_rpcs(out) -> None:
-    render.render_rpcs([RpcNode("PUB", "1.2.3.4:8899", "2.0")], source="url", limit=10)
-    text = out.getvalue()
-    assert "1.2.3.4:8899" in text
-    assert "1 of 1" in text
 
 
 def test_render_position_multi_collateral(out) -> None:
@@ -63,14 +42,6 @@ def test_render_position_single_collateral_skips_crash(out) -> None:
     pos = position([Collateral("SOL", 100, 100, 0.8)], 4000, [Borrow("U", 4000, 1.0)])
     render.render_position(pos)
     assert "Global crash" not in out.getvalue()
-
-
-def test_scan_progress_ticks_without_rendering(out) -> None:
-    with render.scan_progress(2) as tick:
-        tick()
-        tick()
-    # The bar is transient and the test console is not a terminal, so it never renders.
-    assert "Scanning markets" not in out.getvalue()
 
 
 def test_health_color_thresholds() -> None:

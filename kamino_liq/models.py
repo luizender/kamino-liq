@@ -9,39 +9,6 @@ from .config import STABLE_SYMBOLS
 
 
 @dataclass(frozen=True)
-class Market:
-    """A Kamino lending market — a named pool of reserves."""
-
-    name: str
-    address: str
-    is_primary: bool
-    description: str
-
-    @classmethod
-    def from_api(cls, data: dict) -> Market:
-        """Build a Market from a Kamino ``/v2/kamino-market`` entry."""
-        return cls(
-            name=data["name"],
-            address=data["lendingMarket"],
-            is_primary=data.get("isPrimary", False),
-            description=data.get("description", ""),
-        )
-
-
-@dataclass(frozen=True)
-class Reserve:
-    """Reserve metadata, merged from the REST API and the on-chain account."""
-
-    address: str
-    symbol: str
-    mint: str
-    max_ltv: float
-    liquidation_threshold: float = 0.0  # filled from on-chain config
-    decimals: int = 0  # filled from the token mint
-    collateral_exchange_rate: float = 1.0  # underlying per cToken, filled from on-chain
-
-
-@dataclass(frozen=True)
 class Collateral:
     """A deposited asset backing the loan."""
 
@@ -136,12 +103,3 @@ class Position:
         if not self.liquidation_limit:
             return 0.0
         return max(0.0, 1 - self.debt_value / self.liquidation_limit)
-
-
-@dataclass(frozen=True)
-class RpcNode:
-    """A cluster validator advertising a public RPC endpoint."""
-
-    pubkey: str
-    rpc: str
-    version: str

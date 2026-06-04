@@ -1,13 +1,6 @@
 """Tests for the domain models and their derived properties."""
 
-from kamino_liq.models import Borrow, Collateral, Market, Position, RpcNode
-
-
-def test_market_from_api_with_defaults() -> None:
-    market = Market.from_api({"name": "X", "lendingMarket": "ADDR"})
-    assert market.address == "ADDR"
-    assert market.is_primary is False
-    assert market.description == ""
+from kamino_liq.models import Borrow, Collateral, Position
 
 
 def test_collateral_value_and_stability() -> None:
@@ -28,8 +21,3 @@ def test_position_net_value_and_has_debt() -> None:
     )
     assert pos.has_debt is True
     assert pos.net_value == 600  # 1000 deposit - 400 debt
-
-
-def test_rpc_node_fields() -> None:
-    node = RpcNode("PUB", "1.2.3.4:8899", "2.0")
-    assert node.rpc == "1.2.3.4:8899"

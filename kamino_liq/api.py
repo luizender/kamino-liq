@@ -5,7 +5,6 @@ from __future__ import annotations
 import requests
 
 from . import config
-from .models import Market, Reserve
 
 
 class KaminoClient:
@@ -25,30 +24,22 @@ class KaminoClient:
         response.raise_for_status()
         return response.json()
 
-    def markets(self) -> list[Market]:
-        """Return all Kamino lending markets."""
-        return [Market.from_api(m) for m in self._get("v2/kamino-market")]
+    def market(self, pubkey: str) -> dict:
+        """Return one market's metadata (its human-readable ``name``, etc.)."""
+        return self._get(f"v2/kamino-market/{pubkey}")
 
-    def obligations(self, market: str, wallet: str) -> list[dict]:
-        """Return the raw obligation records for ``wallet`` in ``market``."""
-        return self._get(f"kamino-market/{market}/users/{wallet}/obligations")
+    def portfolio(self, wallet: str) -> list[dict]:
+        """Return ``wallet``'s lending loans across every market (one row each).
 
-    def reserves(self, market: str) -> dict[str, Reserve]:
-        """reserve address -> Reserve (without on-chain fields, see chain.py)."""
-        return {
-            m["reserve"]: Reserve(
-                address=m["reserve"],
-                symbol=m["liquidityToken"],
-                mint=m["liquidityTokenMint"],
-                max_ltv=float(m["maxLtv"]),
-            )
-            for m in self._get(f"kamino-market/{market}/reserves/metrics")
-        }
+        Each row carries the loan's ``address`` and ``marketAddress``; per-asset
+        figures come from :meth:`loan`.
+        """
+        return self._get(f"portfolio/{wallet}").get("lending") or []
 
-    def prices(self) -> dict[str, float]:
-        """token mint -> USD price (Kamino's Scope oracle)."""
-        data = self._get("prices", env=config.PRICE_ENV, source=config.PRICE_SOURCE)
-        return {p["mint"]: float(p["usdPrice"]) for p in data}
+    def loan(self, obligation: str) -> dict:
+        """Return one loan's fully-priced detail (underlying amounts, live prices,
+        per-asset liquidation thresholds, and borrow factors)."""
+        return self._get(f"klend/loans/{obligation}")
 
 
 def _new_session() -> requests.Session:

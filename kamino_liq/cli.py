@@ -8,20 +8,10 @@ from datetime import datetime
 import typer
 from solders.pubkey import Pubkey
 
-from . import __version__, config
+from . import __version__
 from .api import KaminoClient
-from .chain import SolanaRPC, enrich_reserves
 from .liquidation import apply_price_overrides
-from .models import Market
-from .render import (
-    console,
-    render_markets,
-    render_position,
-    render_reserves,
-    render_rpcs,
-    render_simulation,
-    scan_progress,
-)
+from .render import console, render_position, render_simulation
 from .service import load_positions
 
 app = typer.Typer(
@@ -55,12 +45,6 @@ def report(
     wallet: str = typer.Argument(
         ..., help="Solana wallet public key (read-only — never a private key)."
     ),
-    market: str | None = typer.Option(
-        None, "--market", "-m", help="Limit to one market pubkey (default: scan all)."
-    ),
-    rpc: str = typer.Option(
-        config.DEFAULT_RPC, "--rpc", help="Solana RPC URL (reads reserve config + decimals)."
-    ),
     crash: bool = typer.Option(
         True, "--crash/--no-crash", help="Include the global market-crash scenario."
     ),
@@ -72,13 +56,11 @@ def report(
     """Show the liquidation prices of WALLET's Kamino Lend positions."""
     _validate_wallet(wallet)
     client = KaminoClient()
-    solana = SolanaRPC(rpc)
-    markets = _select_markets(client, market)
 
     if watch:
-        _watch(wallet, client, solana, markets, crash, interval)
+        _watch(wallet, client, crash, interval)
     else:
-        _report_once(wallet, client, solana, markets, crash)
+        _report_once(wallet, client, crash)
 
 
 @app.command("simulate")
@@ -89,12 +71,6 @@ def simulate_command(
     price: list[str] = typer.Option(
         None, "--price", "-p", help="Override an asset price, e.g. -p SOL=120 (repeatable)."
     ),
-    market: str | None = typer.Option(
-        None, "--market", "-m", help="Limit to one market pubkey (default: scan all)."
-    ),
-    rpc: str = typer.Option(
-        config.DEFAULT_RPC, "--rpc", help="Solana RPC URL (reads reserve config + decimals)."
-    ),
     crash: bool = typer.Option(
         True, "--crash/--no-crash", help="Include the global market-crash scenario."
     ),
@@ -103,13 +79,10 @@ def simulate_command(
     _validate_wallet(wallet)
     overrides = _parse_overrides(price or [])
     client = KaminoClient()
-    solana = SolanaRPC(rpc)
-    markets = _select_markets(client, market)
 
-    with scan_progress(len(markets)) as tick:
-        found = list(load_positions(client, solana, wallet, markets, on_scan=tick))
+    found = list(load_positions(client, wallet))
     held: set[str] = set()
-    for _market, position in found:
+    for position in found:
         render_simulation(position, apply_price_overrides(position, overrides), show_crash=crash)
         held.update(c.symbol.upper() for c in position.collateral)
         held.update(b.symbol.upper() for b in position.borrows)
@@ -120,36 +93,6 @@ def simulate_command(
     unknown = sorted(set(overrides) - held)
     if unknown:
         console.print(f"[yellow]No position holds: {', '.join(unknown)}.[/yellow]")
-
-
-@app.command("markets")
-def markets_command() -> None:
-    """List all Kamino lending markets and their pubkeys."""
-    render_markets(KaminoClient().markets())
-
-
-@app.command("reserves")
-def reserves_command(
-    market: str | None = typer.Option(
-        None, "--market", "-m", help="Market pubkey (default: the primary market)."
-    ),
-    rpc: str = typer.Option(config.DEFAULT_RPC, "--rpc", help="Solana RPC URL."),
-) -> None:
-    """List a market's reserves with their LTV and liquidation thresholds."""
-    client = KaminoClient()
-    selected = _select_markets(client, market)[0] if market else _primary_market(client)
-    reserves = list(client.reserves(selected.address).values())
-    enriched = enrich_reserves(SolanaRPC(rpc), reserves)
-    render_reserves(selected.name, list(enriched.values()))
-
-
-@app.command("rpcs")
-def rpcs_command(
-    rpc: str = typer.Option(config.DEFAULT_RPC, "--rpc", help="RPC node to query for the list."),
-    limit: int = typer.Option(25, "--limit", "-n", min=1, help="Max endpoints to show."),
-) -> None:
-    """List public Solana RPC endpoints advertised on the cluster."""
-    render_rpcs(SolanaRPC(rpc).cluster_nodes(), source=rpc, limit=limit)
 
 
 # --------------------------------------------------------------------------- #
@@ -177,42 +120,19 @@ def _parse_overrides(items: list[str]) -> dict[str, float]:
     return overrides
 
 
-def _primary_market(client: KaminoClient) -> Market:
-    markets = client.markets()
-    return next((m for m in markets if m.is_primary), markets[0])
-
-
-def _select_markets(client: KaminoClient, market: str | None) -> list[Market]:
-    markets = client.markets()
-    if market is None:
-        return markets
-    selected = [m for m in markets if m.address == market]
-    if not selected:
-        raise typer.BadParameter(f"unknown market {market}", param_hint="--market")
-    return selected
-
-
-def _report_once(
-    wallet: str, client: KaminoClient, solana: SolanaRPC, markets: list[Market], crash: bool
-) -> list[Market]:
-    """Render every position; return the markets that actually held one."""
-    with scan_progress(len(markets)) as tick:
-        found = list(load_positions(client, solana, wallet, markets, on_scan=tick))
-    active: list[Market] = []
-    for market, position in found:
-        if market not in active:
-            active.append(market)
+def _report_once(wallet: str, client: KaminoClient, crash: bool) -> bool:
+    """Render every position; return whether any were found."""
+    found = list(load_positions(client, wallet))
+    for position in found:
         render_position(position, show_crash=crash)
-    if not active:
+    if not found:
         console.print(f"[yellow]No Kamino Lend positions found for {wallet}.[/yellow]")
-    return active
+    return bool(found)
 
 
 def _watch(
     wallet: str,
     client: KaminoClient,
-    solana: SolanaRPC,
-    markets: list[Market],
     crash: bool,
     interval: int,
 ) -> None:
@@ -224,14 +144,10 @@ def _watch(
                 f" · every {interval}s · Ctrl+C to stop[/dim]\n"
             )
             try:
-                active = _report_once(wallet, client, solana, markets, crash)
+                _report_once(wallet, client, crash)
             except Exception as exc:  # pylint: disable=broad-exception-caught
-                # keep watching through transient API/RPC errors
+                # keep watching through transient API errors
                 console.print(f"[red]Refresh failed: {exc}[/red]")
-            else:
-                # After the first scan, poll only the markets that hold positions.
-                if active:
-                    markets = active
             time.sleep(interval)
     except KeyboardInterrupt:
         console.print("\n[dim]stopped.[/dim]")
