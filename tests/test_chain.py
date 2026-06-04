@@ -17,11 +17,25 @@ def _response(payload):
     return response
 
 
-def _reserve_account(max_ltv_pct: int, liq_pct: int) -> dict:
+def _reserve_account(
+    max_ltv_pct: int,
+    liq_pct: int,
+    *,
+    available: int = 0,
+    borrowed_sf: int = 0,
+    mint_supply: int = 0,
+) -> dict:
     raw = bytearray(config.RESERVE_LIQ_THRESHOLD_OFFSET + 1)
     raw[config.RESERVE_LTV_OFFSET] = max_ltv_pct
     raw[config.RESERVE_LIQ_THRESHOLD_OFFSET] = liq_pct
+    _pack(raw, config.RESERVE_AVAILABLE_AMOUNT_OFFSET, available, 8)
+    _pack(raw, config.RESERVE_BORROWED_AMOUNT_SF_OFFSET, borrowed_sf, 16)
+    _pack(raw, config.RESERVE_COLLATERAL_MINT_SUPPLY_OFFSET, mint_supply, 8)
     return {"data": [base64.b64encode(bytes(raw)).decode(), "base64"]}
+
+
+def _pack(raw: bytearray, offset: int, value: int, width: int) -> None:
+    raw[offset : offset + width] = value.to_bytes(width, "little")
 
 
 def _mint_account(decimals: int) -> dict:
@@ -83,6 +97,24 @@ def test_enrich_reserves_success() -> None:
     enriched = enrich_reserves(rpc, reserves)
     assert enriched["R"].liquidation_threshold == 0.75
     assert enriched["R"].decimals == 9
+    assert enriched["R"].collateral_exchange_rate == 1.0  # no deposits -> identity
+
+
+def test_enrich_reserves_computes_exchange_rate() -> None:
+    reserves = [Reserve("R", "SOL", "M", max_ltv=0.7)]
+    # total_liquidity = 200 + 1000 (from Sf) = 1200 over a 1000-cToken supply -> 1.2
+    account = _reserve_account(
+        70, 75, available=200, borrowed_sf=1000 * config.FRACTION_SCALE, mint_supply=1000
+    )
+    rpc = StubRPC([account, _mint_account(9)])
+    assert enrich_reserves(rpc, reserves)["R"].collateral_exchange_rate == 1.2
+
+
+def test_enrich_reserves_detects_bad_exchange_rate() -> None:
+    reserves = [Reserve("R", "SOL", "M", max_ltv=0.7)]
+    rpc = StubRPC([_reserve_account(70, 75, available=5000, mint_supply=1), _mint_account(9)])
+    with pytest.raises(RuntimeError, match="exchange rate"):
+        enrich_reserves(rpc, reserves)
 
 
 def test_enrich_reserves_detects_layout_change() -> None:

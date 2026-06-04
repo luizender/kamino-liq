@@ -27,6 +27,20 @@ RESERVE_LTV_OFFSET = 4872  # ReserveConfig.loanToValuePct (u8) == API maxLtv
 RESERVE_LIQ_THRESHOLD_OFFSET = 4873  # ReserveConfig.liquidationThresholdPct (u8)
 MINT_DECIMALS_OFFSET = 44  # SPL mint account: decimals byte
 
+# An obligation's depositedAmount is denominated in collateral tokens (cTokens),
+# not the underlying. These three fields give each reserve's collateral exchange
+# rate (underlying per cToken) = total_liquidity / collateral mint supply, which
+# grows above 1.0 as the reserve accrues interest. Without it, deposits read as
+# cTokens — understating collateral and every metric derived from it.
+RESERVE_AVAILABLE_AMOUNT_OFFSET = 224  # ReserveLiquidity.availableAmount (u64)
+RESERVE_BORROWED_AMOUNT_SF_OFFSET = 232  # ReserveLiquidity.borrowedAmountSf (u128, Sf-scaled)
+RESERVE_COLLATERAL_MINT_SUPPLY_OFFSET = 2592  # ReserveCollateral.mintTotalSupply (u64)
+
+# The exchange rate is >= 1.0 by construction and only creeps up with interest; a
+# value outside this range means the on-chain layout shifted (fail loudly instead
+# of silently returning wrong amounts).
+MAX_COLLATERAL_EXCHANGE_RATE = 1000.0
+
 # Sentinel marking an unused deposit/borrow slot in an obligation.
 EMPTY_PUBKEY = "11111111111111111111111111111111"
 

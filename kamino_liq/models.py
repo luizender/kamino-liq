@@ -38,6 +38,7 @@ class Reserve:
     max_ltv: float
     liquidation_threshold: float = 0.0  # filled from on-chain config
     decimals: int = 0  # filled from the token mint
+    collateral_exchange_rate: float = 1.0  # underlying per cToken, filled from on-chain
 
 
 @dataclass(frozen=True)

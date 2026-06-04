@@ -81,9 +81,11 @@ def _build_position(
 
 
 def _collateral(deposit: dict, reserve: Reserve, prices: dict[str, float]) -> Collateral:
+    # depositedAmount is in cTokens; scale to the underlying via the exchange rate.
+    underlying = int(deposit["depositedAmount"]) * reserve.collateral_exchange_rate
     return Collateral(
         symbol=reserve.symbol,
-        amount=int(deposit["depositedAmount"]) / 10**reserve.decimals,
+        amount=underlying / 10**reserve.decimals,
         price=prices.get(reserve.mint, 0.0),
         liquidation_threshold=reserve.liquidation_threshold,
     )

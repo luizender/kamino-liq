@@ -46,6 +46,27 @@ def test_build_position_amounts_and_prices(monkeypatch, fake_kamino, obligation)
     assert position.debt_value == 5.0
 
 
+def test_collateral_scales_ctokens_by_exchange_rate(monkeypatch, fake_kamino, obligation):
+    enriched = {
+        "resSOL": Reserve(
+            "resSOL", "SOL", "mintSOL", 0.7, 0.75, decimals=9, collateral_exchange_rate=1.2
+        )
+    }
+    monkeypatch.setattr(service, "enrich_reserves", lambda rpc, reserves: enriched)
+    ob = obligation(
+        has_debt=True,
+        debt_value="5.0",
+        deposits=[{"depositReserve": "resSOL", "depositedAmount": str(10 * 10**9)}],
+    )
+    client = fake_kamino(
+        markets=[MARKET], reserves=RESERVES, obligations_map={"MKT": [ob]}, prices=PRICES
+    )
+
+    ((_, position),) = list(service.load_positions(client, None, "W", [MARKET]))
+    assert position.collateral[0].amount == 12  # 10 cTokens * 1.2 underlying
+    assert position.collateral[0].value == 1200
+
+
 def test_market_without_active_obligations_is_skipped(monkeypatch, fake_kamino, obligation):
     _patch_enrich(monkeypatch)
     inactive = obligation(has_debt=False, deposits=[], borrows=[])

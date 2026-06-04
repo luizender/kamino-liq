@@ -72,8 +72,42 @@ def enrich_reserves(rpc: SolanaRPC, reserves: list[Reserve]) -> dict[str, Reserv
             reserve,
             liquidation_threshold=raw[config.RESERVE_LIQ_THRESHOLD_OFFSET] / 100,
             decimals=decimals,
+            collateral_exchange_rate=_collateral_exchange_rate(reserve, raw),
         )
     return enriched
+
+
+def _collateral_exchange_rate(reserve: Reserve, raw: bytes) -> float:
+    """Underlying liquidity per cToken: total_liquidity / collateral mint supply.
+
+    Obligation deposits are denominated in cTokens; the Kamino UI shows the
+    underlying amount, which is this rate times the cToken amount. Both totals
+    are in raw token units, so their decimals cancel.
+    """
+    mint_supply = _u64(raw, config.RESERVE_COLLATERAL_MINT_SUPPLY_OFFSET)
+    if mint_supply == 0:  # an empty reserve has no deposits to convert
+        return 1.0
+    total_liquidity = (
+        _u64(raw, config.RESERVE_AVAILABLE_AMOUNT_OFFSET)
+        + _u128(raw, config.RESERVE_BORROWED_AMOUNT_SF_OFFSET) / config.FRACTION_SCALE
+    )
+    rate = total_liquidity / mint_supply
+    # 1e-9 tolerates float rounding right at the rate >= 1.0 invariant boundary.
+    if not 1.0 - 1e-9 <= rate <= config.MAX_COLLATERAL_EXCHANGE_RATE:
+        raise RuntimeError(
+            f"KLend reserve layout changed for {reserve.symbol} ({reserve.address}): "
+            f"collateral exchange rate {rate:g} outside "
+            f"[1, {config.MAX_COLLATERAL_EXCHANGE_RATE:g}]. Update the offsets in config.py."
+        )
+    return rate
+
+
+def _u64(raw: bytes, offset: int) -> int:
+    return int.from_bytes(raw[offset : offset + 8], "little")
+
+
+def _u128(raw: bytes, offset: int) -> int:
+    return int.from_bytes(raw[offset : offset + 16], "little")
 
 
 def _account_data(account: dict | None, pubkey: str) -> bytes:
