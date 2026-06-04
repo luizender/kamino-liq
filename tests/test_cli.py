@@ -69,6 +69,45 @@ def test_report_watch_invokes_watch(monkeypatch, fake_kamino, market) -> None:
     assert called.get("watched") is True
 
 
+def test_simulate_command(monkeypatch, fake_kamino, market, sample_position) -> None:
+    patch_clients(monkeypatch, fake_kamino(markets=[market]))
+    monkeypatch.setattr(cli, "load_positions", lambda c, r, w, m: [(market, sample_position)])
+    result = runner.invoke(cli.app, ["simulate", WALLET, "-p", "SOL=50"])
+    assert result.exit_code == 0
+    assert "Simulation" in result.output
+    assert "Simulated price changes" in result.output
+
+
+def test_simulate_warns_on_unheld_symbol(monkeypatch, fake_kamino, market, sample_position) -> None:
+    patch_clients(monkeypatch, fake_kamino(markets=[market]))
+    monkeypatch.setattr(cli, "load_positions", lambda c, r, w, m: [(market, sample_position)])
+    result = runner.invoke(cli.app, ["simulate", WALLET, "-p", "SOL=50", "-p", "BONK=1"])
+    assert result.exit_code == 0
+    assert "No position holds: BONK" in result.output
+
+
+def test_simulate_not_found(monkeypatch, fake_kamino, market) -> None:
+    patch_clients(monkeypatch, fake_kamino(markets=[market]))
+    monkeypatch.setattr(cli, "load_positions", lambda c, r, w, m: [])
+    result = runner.invoke(cli.app, ["simulate", WALLET, "-p", "SOL=50"])
+    assert "No Kamino Lend positions" in result.output
+
+
+def test_simulate_requires_a_price() -> None:
+    result = runner.invoke(cli.app, ["simulate", WALLET])
+    assert result.exit_code != 0
+
+
+def test_simulate_rejects_bad_price_format() -> None:
+    result = runner.invoke(cli.app, ["simulate", WALLET, "-p", "SOL"])
+    assert result.exit_code != 0
+
+
+def test_simulate_rejects_non_numeric_price() -> None:
+    result = runner.invoke(cli.app, ["simulate", WALLET, "-p", "SOL=cheap"])
+    assert result.exit_code != 0
+
+
 def test_markets_command(monkeypatch, fake_kamino, market) -> None:
     monkeypatch.setattr(cli, "KaminoClient", lambda *a, **k: fake_kamino(markets=[market]))
     result = runner.invoke(cli.app, ["markets"])

@@ -6,6 +6,7 @@ import pytest
 from rich.console import Console
 
 from kamino_liq import render
+from kamino_liq.liquidation import apply_price_overrides
 from kamino_liq.models import Borrow, Collateral, Market, Position, Reserve, RpcNode
 
 
@@ -95,3 +96,40 @@ def test_render_crash_exceeded(out) -> None:
 def test_render_crash_at_risk(out) -> None:
     render._render_crash(position([Collateral("SOL", 100, 100, 0.8)], 9000))
     assert "past" in out.getvalue()
+
+
+def test_render_crash_volatile_debt(out) -> None:
+    pos = position([Collateral("SOL", 10, 100, 0.8)], 500, [Borrow("BTC", 0.1, 40000)])
+    render._render_crash(pos)
+    assert "volatile" in out.getvalue()
+    assert "simulate" in out.getvalue()
+
+
+def test_render_simulation_shows_changes_and_verdict(out) -> None:
+    sol = Collateral("SOL", 100, 100, 0.8)
+    original = position([sol], 4000, [Borrow("USDC", 4000, 1.0)])
+    simulated = apply_price_overrides(original, {"SOL": 40.0})
+    render.render_simulation(original, simulated)
+    text = out.getvalue()
+    assert "Simulation" in text
+    assert "Simulated price changes" in text
+    assert "2.00 →" in text  # original HF 8000/4000; simulated 3200/4000 = 0.80
+    assert "would be liquidated" in text
+
+
+def test_render_simulation_no_matching_changes(out) -> None:
+    sol = Collateral("SOL", 100, 100, 0.8)
+    original = position([sol], 4000, [Borrow("USDC", 4000, 1.0)])
+    render.render_simulation(original, original)
+    assert "No simulated price changes" in out.getvalue()
+
+
+def test_render_simulation_no_debt_skips_health_line(out) -> None:
+    sol = Collateral("SOL", 100, 100, 0.8)
+    original = position([sol], 0)  # no debt -> no health-factor line
+    simulated = apply_price_overrides(original, {"SOL": 50.0})
+    render.render_simulation(original, simulated)
+    text = out.getvalue()
+    assert "Simulated price changes" in text
+    assert "Health factor:" not in text
+    assert "cannot be liquidated" in text

@@ -36,6 +36,9 @@ $ kamino-liq report <YOUR_WALLET_PUBKEY>
 - **Two liquidation views** — the price of each collateral if *only that asset
   drops*, plus a *global market-crash* scenario where volatile assets fall
   together while stablecoins hold.
+- **What-if simulation** — override any asset's price (`simulate -p SOL=120`) and
+  recompute the health, liquidation prices, and crash scenario at those prices —
+  for the crashes that aren't uniform.
 - **Multi-market** — automatically scans every Kamino market (Main, JLP, Jito, …).
 - **Watch mode** — refresh continuously; after the first scan it polls only the
   markets that actually hold your positions.
@@ -66,6 +69,9 @@ kamino-liq report <WALLET>
 
 # Limit to one market, and skip the crash scenario
 kamino-liq report <WALLET> --market 7u3HeHxYDLhnCoErrtycNokbQYbWGzLs6JSDqGAv5PfF --no-crash
+
+# What-if: recompute health at hypothetical prices (-p is repeatable)
+kamino-liq simulate <WALLET> -p SOL=120 -p JupSOL=110
 
 # Watch mode: refresh every 15s until Ctrl+C
 kamino-liq report <WALLET> --watch --interval 15
@@ -110,13 +116,20 @@ accounts at fixed byte offsets. The reserve offset is **cross-checked against th
 API's `maxLtv`** on every read, so if Kamino ever changes the account layout the
 tool fails loudly instead of silently returning a wrong number.
 
-### The two liquidation scenarios
+### The liquidation views
+
+A position with several collateral assets has no single liquidation price — it has
+a *surface* in price space, and any tool has to pick a path through it:
 
 - **Single asset drops** — for each collateral, the price at which the position
   becomes liquidatable assuming that asset alone falls and the rest hold value.
 - **Global crash** — every *volatile* collateral falls together while stablecoins
   keep their peg; reports the common drop % (and per-asset price) that triggers
-  liquidation.
+  liquidation. This model holds the debt fixed, so it is suppressed when the debt
+  itself is volatile (a real crash would move it too) — use `simulate` there.
+- **Simulation** (`simulate`) — set explicit prices for any assets and recompute
+  everything at once, for crashes that aren't uniform. Repricing a borrowed asset
+  rescales Kamino's borrow-factor-adjusted debt by its current aggregate factor.
 
 ## Project structure
 
@@ -129,7 +142,7 @@ kamino_liq/
   service.py      orchestration: wallet -> Position objects
   liquidation.py  pure liquidation-price math (no I/O)
   render.py       Rich rendering
-  cli.py          Typer app: report / markets / reserves / rpcs
+  cli.py          Typer app: report / simulate / markets / reserves / rpcs
 tests/            unit tests for the liquidation math
 ```
 

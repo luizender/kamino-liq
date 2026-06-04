@@ -11,8 +11,16 @@ from solders.pubkey import Pubkey
 from . import __version__, config
 from .api import KaminoClient
 from .chain import SolanaRPC, enrich_reserves
+from .liquidation import apply_price_overrides
 from .models import Market
-from .render import console, render_markets, render_position, render_reserves, render_rpcs
+from .render import (
+    console,
+    render_markets,
+    render_position,
+    render_reserves,
+    render_rpcs,
+    render_simulation,
+)
 from .service import load_positions
 
 app = typer.Typer(
@@ -69,6 +77,45 @@ def report(
         _report_once(wallet, client, solana, markets, crash)
 
 
+@app.command("simulate")
+def simulate_command(
+    wallet: str = typer.Argument(
+        ..., help="Solana wallet public key (read-only — never a private key)."
+    ),
+    price: list[str] = typer.Option(
+        None, "--price", "-p", help="Override an asset price, e.g. -p SOL=120 (repeatable)."
+    ),
+    market: str | None = typer.Option(
+        None, "--market", "-m", help="Limit to one market pubkey (default: scan all)."
+    ),
+    rpc: str = typer.Option(
+        config.DEFAULT_RPC, "--rpc", help="Solana RPC URL (reads reserve config + decimals)."
+    ),
+    crash: bool = typer.Option(
+        True, "--crash/--no-crash", help="Include the global market-crash scenario."
+    ),
+) -> None:
+    """Recompute WALLET's liquidation health under hypothetical prices."""
+    _validate_wallet(wallet)
+    overrides = _parse_overrides(price or [])
+    client = KaminoClient()
+    solana = SolanaRPC(rpc)
+    markets = _select_markets(client, market)
+
+    held: set[str] = set()
+    for _market, position in load_positions(client, solana, wallet, markets):
+        render_simulation(position, apply_price_overrides(position, overrides), show_crash=crash)
+        held.update(c.symbol.upper() for c in position.collateral)
+        held.update(b.symbol.upper() for b in position.borrows)
+
+    if not held:
+        console.print(f"[yellow]No Kamino Lend positions found for {wallet}.[/yellow]")
+        return
+    unknown = sorted(set(overrides) - held)
+    if unknown:
+        console.print(f"[yellow]No position holds: {', '.join(unknown)}.[/yellow]")
+
+
 @app.command("markets")
 def markets_command() -> None:
     """List all Kamino lending markets and their pubkeys."""
@@ -107,6 +154,21 @@ def _validate_wallet(wallet: str) -> None:
         Pubkey.from_string(wallet)
     except Exception as exc:  # solders raises a bare ValueError-like error
         raise typer.BadParameter("not a valid Solana public key", param_hint="WALLET") from exc
+
+
+def _parse_overrides(items: list[str]) -> dict[str, float]:
+    if not items:
+        raise typer.BadParameter("provide at least one SYMBOL=PRICE", param_hint="--price")
+    overrides: dict[str, float] = {}
+    for item in items:
+        symbol, sep, value = item.partition("=")
+        if not sep or not symbol.strip():
+            raise typer.BadParameter(f"expected SYMBOL=PRICE, got {item!r}", param_hint="--price")
+        try:
+            overrides[symbol.strip().upper()] = float(value)
+        except ValueError as exc:
+            raise typer.BadParameter(f"{value!r} is not a number", param_hint="--price") from exc
+    return overrides
 
 
 def _primary_market(client: KaminoClient) -> Market:

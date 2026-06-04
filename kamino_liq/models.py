@@ -78,6 +78,11 @@ class Borrow:
         """USD value of the borrow (amount × price)."""
         return self.amount * self.price
 
+    @property
+    def is_stable(self) -> bool:
+        """Whether the borrowed asset is a peg-holding stablecoin."""
+        return self.symbol.upper() in STABLE_SYMBOLS
+
 
 @dataclass(frozen=True)
 class Position:

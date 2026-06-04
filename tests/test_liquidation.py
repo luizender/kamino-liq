@@ -3,7 +3,12 @@
 import math
 from collections.abc import Iterable
 
-from kamino_liq.liquidation import CrashStatus, crash_scenario, single_asset_levels
+from kamino_liq.liquidation import (
+    CrashStatus,
+    apply_price_overrides,
+    crash_scenario,
+    single_asset_levels,
+)
 from kamino_liq.models import Borrow, Collateral, Position
 
 
@@ -92,6 +97,41 @@ def test_single_asset_zero_threshold_is_safe() -> None:
     (level,) = single_asset_levels(pos)
     assert level.is_safe
     assert level.buffer is None
+
+
+def test_crash_gated_when_debt_is_volatile() -> None:
+    # A SOL crash would also move a SOL-denominated debt, so the uniform-crash
+    # model is suppressed rather than holding the debt fixed.
+    sol = Collateral("SOL", amount=100, price=100, liquidation_threshold=0.8)
+    pos = make_position([sol], debt_value=4_000, borrows=[Borrow("BTC", 0.1, 40_000)])
+    assert crash_scenario(pos).status is CrashStatus.VOLATILE_DEBT
+
+
+def test_apply_overrides_reprices_collateral_and_keeps_stable_debt() -> None:
+    sol = Collateral("SOL", amount=100, price=100, liquidation_threshold=0.8)
+    pos = make_position([sol], debt_value=4_000, borrows=[Borrow("USDC", 4_000, 1.0)])
+    simulated = apply_price_overrides(pos, {"SOL": 50.0})
+    assert simulated.collateral[0].price == 50.0
+    # Stable debt price is unchanged, so the adjusted debt is untouched.
+    assert simulated.debt_value == 4_000
+    assert simulated.health_factor == 1.0  # 50*100*0.8 / 4000
+
+
+def test_apply_overrides_rescales_volatile_debt() -> None:
+    # debt_value carries a 1.2x borrow factor (4800 adjusted on 4000 borrowed).
+    sol = Collateral("SOL", amount=100, price=100, liquidation_threshold=0.8)
+    pos = make_position([sol], debt_value=4_800, borrows=[Borrow("ETH", 2, 2_000)])
+    simulated = apply_price_overrides(pos, {"ETH": 1_000.0})  # halve the debt price
+    assert simulated.borrows[0].price == 1_000.0
+    assert simulated.debt_value == 2_400  # factor 1.2 preserved on the new 2000 borrowed
+
+
+def test_apply_overrides_without_borrows_is_a_noop_on_debt() -> None:
+    sol = Collateral("SOL", amount=10, price=100, liquidation_threshold=0.8)
+    pos = make_position([sol], debt_value=0)
+    simulated = apply_price_overrides(pos, {"DOGE": 1.0})  # symbol not held -> no change
+    assert simulated.collateral[0].price == 100
+    assert simulated.debt_value == 0
 
 
 def test_position_without_collateral_has_zero_metrics() -> None:

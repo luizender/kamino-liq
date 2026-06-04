@@ -86,6 +86,21 @@ def render_rpcs(nodes: list[RpcNode], source: str, limit: int) -> None:
 def render_position(position: Position, show_crash: bool = True) -> None:
     """Print a position's holdings, health, and liquidation scenarios."""
     console.rule(f"[bold]{position.market_name}[/bold]  ·  obligation {position.address[:8]}…")
+    _render_body(position, show_crash)
+
+
+def render_simulation(original: Position, simulated: Position, show_crash: bool = True) -> None:
+    """Print a what-if: the price overrides applied, the resulting health, and the
+    full liquidation breakdown recomputed at the simulated prices."""
+    console.rule(
+        f"[bold]Simulation[/bold]  ·  {simulated.market_name}"
+        f"  ·  obligation {simulated.address[:8]}…"
+    )
+    _render_overrides(original, simulated)
+    _render_body(simulated, show_crash)
+
+
+def _render_body(position: Position, show_crash: bool) -> None:
     _render_holdings(position)
     if not position.has_debt:
         console.print("[green]No debt — this position cannot be liquidated.[/green]\n")
@@ -97,6 +112,31 @@ def render_position(position: Position, show_crash: bool = True) -> None:
         console.print()
         _render_crash(position)
     console.print()
+
+
+def _render_overrides(original: Position, simulated: Position) -> None:
+    assets = list(zip(original.collateral, simulated.collateral)) + list(
+        zip(original.borrows, simulated.borrows)
+    )
+    rows = [(before, after) for before, after in assets if before.price != after.price]
+    if not rows:
+        console.print("[dim]No simulated price changes apply to this position.[/dim]\n")
+        return
+    table = _table("Simulated price changes")
+    table.add_column("Asset")
+    for name in ("Original", "Simulated", "Change"):
+        table.add_column(name, justify="right")
+    for before, after in rows:
+        change = (after.price - before.price) / before.price if before.price else 0.0
+        table.add_row(after.symbol, _usd(before.price), _usd(after.price), f"{change:+.1%}")
+    console.print(table)
+    if simulated.has_debt:
+        color = _health_color(simulated.health_factor)
+        verdict = "  [red]would be liquidated[/red]" if simulated.health_factor < 1.0 else ""
+        console.print(
+            f"Health factor: {original.health_factor:.2f} → "
+            f"[{color}]{simulated.health_factor:.2f}[/{color}]{verdict}\n"
+        )
 
 
 def _render_holdings(position: Position) -> None:
@@ -160,6 +200,9 @@ def _render_crash(position: Position) -> None:
         "no volatile assets to absorb it.[/red]",
         CrashStatus.AT_RISK: "[red]Global crash: already at or past the liquidation "
         "threshold.[/red]",
+        CrashStatus.VOLATILE_DEBT: "[yellow]Global crash: debt includes volatile assets that "
+        "would also move in a crash, so a uniform collateral crash is not a meaningful single "
+        "scenario. Use `simulate` to model specific prices.[/yellow]",
     }
     if scenario.status is not CrashStatus.TRIGGERABLE:
         console.print(messages[scenario.status])
