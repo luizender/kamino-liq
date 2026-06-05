@@ -12,11 +12,12 @@ transaction — preserve that invariant in every change.
 
 ## Layering (do not cross)
 
-`api.py` (Kamino REST) and `chain.py` (Solana RPC + on-chain decoding) do the I/O →
-`service.py` orchestrates a wallet into `Position` objects → `liquidation.py` is
-**pure math over the models: no I/O, no rendering** → `render.py` (Rich) → `cli.py`
-(Typer). Keeping `liquidation.py` free of I/O is what makes the math trivially
-unit-testable; don't import network/render code into it.
+`api.py` (Kamino REST — the only I/O) → `service.py` orchestrates a wallet into
+`Position` objects (`portfolio` lists the loans, `loan` prices each, `market` names
+it) → `liquidation.py` is **pure math over the models: no I/O, no rendering** →
+`render.py` (Rich) → `cli.py` (Typer). Keeping `liquidation.py` free of I/O is what
+makes the math trivially unit-testable; don't import network/render code into it.
+The tool is pure REST — no Solana RPC, no on-chain decoding, no private key.
 
 ## Models
 
@@ -42,7 +43,7 @@ each edit. Every new function needs a test in the matching `tests/test_*.py`.
 
 - Match surrounding code. Reuse the `render.py` helpers (`_table`, `_usd`,
   `_health_color`) instead of building ad-hoc Rich tables.
-- New CLI commands follow the existing pattern: `_validate_wallet` → `_select_markets`
-  → `service.load_positions` → a `render.py` function.
-- On-chain byte offsets live in `config.py` and are cross-checked at runtime; see the
-  `verify-onchain-layout` skill before touching them.
+- New CLI commands follow the existing pattern: `_validate_wallet` →
+  `service.load_positions` → a `render.py` function.
+- Every Kamino endpoint is wrapped by one `KaminoClient` method in `api.py`; keep
+  HTTP there and out of `service.py`.

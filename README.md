@@ -66,7 +66,7 @@ After `pip install -e .` the entry point is `kamino-liq`; otherwise use
 `python -m kamino_liq`. The two are interchangeable.
 
 ```bash
-# Liquidation report for a wallet (scans all markets)
+# Liquidation report for a wallet (all your loans, every market)
 kamino-liq report <WALLET>
 
 # Skip the crash scenario

@@ -120,14 +120,13 @@ def _parse_overrides(items: list[str]) -> dict[str, float]:
     return overrides
 
 
-def _report_once(wallet: str, client: KaminoClient, crash: bool) -> bool:
-    """Render every position; return whether any were found."""
+def _report_once(wallet: str, client: KaminoClient, crash: bool) -> None:
+    """Render every position, or a note if the wallet has none."""
     found = list(load_positions(client, wallet))
     for position in found:
         render_position(position, show_crash=crash)
     if not found:
         console.print(f"[yellow]No Kamino Lend positions found for {wallet}.[/yellow]")
-    return bool(found)
 
 
 def _watch(

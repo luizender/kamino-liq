@@ -105,25 +105,12 @@ def test_watch_survives_errors(monkeypatch) -> None:
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("transient")  # exercises the except branch
-        return True
 
     def sleep(_seconds):
         if calls["n"] >= 2:
-            raise KeyboardInterrupt
+            raise KeyboardInterrupt  # exercises the second (clean) pass, then stops
 
     monkeypatch.setattr(cli, "_report_once", report_once)
     monkeypatch.setattr(cli.time, "sleep", sleep)
     cli._watch("W", object(), crash=True, interval=1)
     assert calls["n"] == 2
-
-
-def test_watch_with_no_active_positions(monkeypatch) -> None:
-    def report_once(*_args):
-        return False
-
-    def sleep(_seconds):
-        raise KeyboardInterrupt
-
-    monkeypatch.setattr(cli, "_report_once", report_once)
-    monkeypatch.setattr(cli.time, "sleep", sleep)
-    cli._watch("W", object(), crash=True, interval=1)
