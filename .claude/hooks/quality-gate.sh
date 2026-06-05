@@ -11,10 +11,10 @@ if [[ "$(cat | python3 -c 'import sys,json; print(json.load(sys.stdin).get("stop
 fi
 
 venv="$CLAUDE_PROJECT_DIR/.venv/bin"
-if out=$("$venv/ruff" check kamino_liq tests 2>&1) \
-    && out=$("$venv/ruff" format --check kamino_liq tests 2>&1) \
+if out=$("$venv/ruff" check lend_liq tests 2>&1) \
+    && out=$("$venv/ruff" format --check lend_liq tests 2>&1) \
     && out=$("$venv/pytest" -q --cov --cov-report=term-missing 2>&1) \
-    && out=$("$venv/pylint" kamino_liq 2>&1); then
+    && out=$("$venv/pylint" lend_liq 2>&1); then
     exit 0
 fi
 

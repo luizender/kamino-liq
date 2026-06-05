@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import requests
 
-from . import config
+from .. import config
 
 
 class KaminoClient:

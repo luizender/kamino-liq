@@ -1,4 +1,4 @@
-"""Enable `python -m kamino_liq`."""
+"""Enable `python -m lend_liq`."""
 
 from .cli import app
 

@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 import pytest
 
-from kamino_liq.models import Borrow, Collateral, Position
+from lend_liq.models import Borrow, Collateral, Position
 
 
 @pytest.fixture
@@ -63,3 +63,22 @@ def loan_detail():
         }
 
     return _make
+
+
+@pytest.fixture
+def fake_aave():
+    """Factory for a duck-typed AaveClient with canned GraphQL responses."""
+
+    class _FakeAave:
+        def __init__(self, markets=(), supplies=(), borrows=()) -> None:
+            self._markets: list[dict] = list(markets)
+            self._supplies: list[dict] = list(supplies)
+            self._borrows: list[dict] = list(borrows)
+
+        def markets(self, chain_id: int, user: str) -> list[dict]:
+            return self._markets
+
+        def user_positions(self, markets: list[dict], user: str) -> dict:
+            return {"supplies": self._supplies, "borrows": self._borrows}
+
+    return _FakeAave

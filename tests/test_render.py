@@ -5,9 +5,9 @@ import io
 import pytest
 from rich.console import Console
 
-from kamino_liq import render
-from kamino_liq.liquidation import apply_price_overrides
-from kamino_liq.models import Borrow, Collateral, Position
+from lend_liq import render
+from lend_liq.liquidation import apply_price_overrides
+from lend_liq.models import Borrow, Collateral, Position
 
 
 @pytest.fixture

@@ -3,13 +3,13 @@
 import math
 from collections.abc import Iterable
 
-from kamino_liq.liquidation import (
+from lend_liq.liquidation import (
     CrashStatus,
     apply_price_overrides,
     crash_scenario,
     single_asset_levels,
 )
-from kamino_liq.models import Borrow, Collateral, Position
+from lend_liq.models import Borrow, Collateral, Position
 
 
 def make_position(

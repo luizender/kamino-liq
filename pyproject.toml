@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "kamino-liq"
+name = "lend-liq"
 version = "0.1.0"
-description = "Read a Solana wallet's Kamino Lend position and compute its liquidation prices."
+description = "Read a wallet's Kamino Lend or Aave V3 position and compute its liquidation prices."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -20,18 +20,18 @@ dependencies = [
 dev = ["pytest>=8.0", "pytest-cov>=5.0", "coverage[toml]>=7.0", "pylint>=3.3", "ruff>=0.6"]
 
 [project.scripts]
-kamino-liq = "kamino_liq.cli:app"
+lend-liq = "lend_liq.cli:app"
 
 [tool.setuptools]
-packages = ["kamino_liq"]
+packages = ["lend_liq", "lend_liq.aave", "lend_liq.kamino"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.coverage.run]
-source = ["kamino_liq"]
-omit = ["kamino_liq/__main__.py"]  # the `python -m` shim, exercised by hand
+source = ["lend_liq"]
+omit = ["lend_liq/__main__.py"]  # the `python -m` shim, exercised by hand
 
 [tool.coverage.report]
 show_missing = true
