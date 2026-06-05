@@ -31,11 +31,11 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
           pip install -e . --no-deps
       - name: ruff check
-        run: ruff check kamino_liq tests
+        run: ruff check lend_liq tests
       - name: ruff format --check
-        run: ruff format --check kamino_liq tests
+        run: ruff format --check lend_liq tests
       - name: pylint (must stay 10.00/10)
-        run: pylint kamino_liq
+        run: pylint lend_liq
 
   test:
     name: pytest (py${{ matrix.python-version }})

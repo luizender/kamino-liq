@@ -9,9 +9,11 @@ from collections.abc import Callable, Iterator
 
 from solders.pubkey import Pubkey
 
-from . import aave_service, config, service
-from .aave_api import AaveClient
-from .api import KaminoClient
+from . import config
+from .aave import service as aave_service
+from .aave.api import AaveClient
+from .kamino import service
+from .kamino.api import KaminoClient
 from .models import Position
 
 Loader = Callable[[], Iterator[Position]]

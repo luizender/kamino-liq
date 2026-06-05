@@ -1,17 +1,18 @@
-# kamino-liq
+# lend-liq
 
-[![CI](https://github.com/luizender/kamino-liq/actions/workflows/ci.yml/badge.svg)](https://github.com/luizender/kamino-liq/actions/workflows/ci.yml)
+[![CI](https://github.com/luizender/lend-liq/actions/workflows/ci.yml/badge.svg)](https://github.com/luizender/lend-liq/actions/workflows/ci.yml)
 
-A small, **read-only** command-line tool that reads a Solana wallet's live
-[Kamino Lend](https://app.kamino.finance) position and tells you **at what prices
-it gets liquidated** — pulling the position, prices, and liquidation thresholds
-straight from the Kamino API.
+A small, **read-only** command-line tool that reads a wallet's live
+[Kamino Lend](https://app.kamino.finance) (Solana) or [Aave V3](https://aave.com)
+(EVM) position and tells you **at what prices it gets liquidated** — pulling the
+position, prices, and liquidation thresholds straight from each protocol's public
+API.
 
 > 🔒 It only ever needs a wallet **public key**. It never asks for, needs, or
 > touches a private key or seed phrase, and it never sends a transaction.
 
 ```
-$ kamino-liq report <YOUR_WALLET_PUBKEY>
+$ lend-liq report <YOUR_WALLET_PUBKEY>
 
 ───────────────── Main Market  ·  obligation 3ssjMRz3… ─────────────────
   Asset            Amount        Price            Value   Liq. LTV
@@ -31,10 +32,12 @@ $ kamino-liq report <YOUR_WALLET_PUBKEY>
 
 ## Features
 
+- **Two protocols** — Kamino Lend on Solana and Aave V3 across its EVM chains
+  (`--chain`), behind one interface; the protocol is auto-detected from the address.
 - **Live position** — fetches your actual deposits/borrows; no manual data entry.
-- **Accurate liquidation math** — uses Kamino's own per-asset prices, liquidation
-  thresholds, and borrow-factor-adjusted debt, so the health figures match the
-  Kamino UI.
+- **Accurate liquidation math** — uses each protocol's own per-asset prices and
+  liquidation thresholds (and, for Kamino, borrow-factor-adjusted debt), so the
+  health figures match the protocol's UI.
 - **Two liquidation views** — the price of each collateral if *only that asset
   drops*, plus a *global market-crash* scenario where volatile assets fall
   together while stablecoins hold.
@@ -53,49 +56,64 @@ Requires Python 3.10+.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 
-# Option A — install as a command (`kamino-liq`)
+# Option A — install as a command (`lend-liq`)
 pip install -e .
 
-# Option B — just the runtime deps, run via `python -m kamino_liq`
+# Option B — just the runtime deps, run via `python -m lend_liq`
 pip install -r requirements.txt
 ```
 
 ## Usage
 
-After `pip install -e .` the entry point is `kamino-liq`; otherwise use
-`python -m kamino_liq`. The two are interchangeable.
+After `pip install -e .` the entry point is `lend-liq`; otherwise use
+`python -m lend_liq`. The two are interchangeable.
 
 ```bash
 # Liquidation report for a wallet (all your loans, every market)
-kamino-liq report <WALLET>
+lend-liq report <WALLET>
+
+# Aave: pass an EVM address and the chain (protocol is auto-detected)
+lend-liq report 0x<EVM_ADDRESS> --chain arbitrum
 
 # Skip the crash scenario
-kamino-liq report <WALLET> --no-crash
+lend-liq report <WALLET> --no-crash
 
 # What-if: recompute health at hypothetical prices (-p is repeatable)
-kamino-liq simulate <WALLET> -p SOL=120 -p JupSOL=110
+lend-liq simulate <WALLET> -p SOL=120 -p JupSOL=110
 
 # Watch mode: refresh every 15s until Ctrl+C
-kamino-liq report <WALLET> --watch --interval 15
+lend-liq report <WALLET> --watch --interval 15
 ```
 
-Run `kamino-liq --help` or `kamino-liq <command> --help` for all options.
+Run `lend-liq --help` or `lend-liq <command> --help` for all options.
 
 ## How it works
 
-Everything needed is public and keyless:
+Everything needed is public and keyless.
+
+**Kamino (Solana, REST)** — a wallet's whole position comes from REST calls:
 
 | Data | Source |
 |------|--------|
-| Market names | Kamino REST API — `/v2/kamino-market/{pubkey}` |
-| Your loans across all markets | Kamino REST API — `/portfolio/{wallet}` |
-| Per-asset amounts, live prices, liquidation thresholds, borrow factors | Kamino REST API — `/klend/loans/{pubkey}` |
+| Your loans across all markets | `/portfolio/{wallet}` |
+| Market names | `/v2/kamino-market/{pubkey}` |
+| Per-asset amounts, live prices, liquidation thresholds, borrow factors | `/klend/loans/{pubkey}` |
 
-A wallet's whole position comes from REST calls: `/portfolio/{wallet}` lists
-its loans, then `/v2/kamino-market/{pubkey}` gets each market's name, and
-`/klend/loans/{pubkey}` returns each one's underlying deposit amounts, live prices,
-per-asset liquidation thresholds, and borrow-factor-adjusted debt — already computed
-the way the Kamino app shows them.
+`/portfolio/{wallet}` lists the loans, `/v2/kamino-market/{pubkey}` names each
+market, and `/klend/loans/{pubkey}` returns each one's underlying deposit amounts,
+live prices, per-asset liquidation thresholds, and borrow-factor-adjusted debt —
+already computed the way the Kamino app shows them.
+
+**Aave V3 (EVM, GraphQL)** — two POSTs to the AaveKit API (`api.v3.aave.com/graphql`):
+
+| Data | Source |
+|------|--------|
+| Per-reserve liquidation thresholds, eMode override, health factor | `markets` query |
+| Priced supplies & borrows (amount, USD price, `isCollateral`) | `userSupplies` / `userBorrows` |
+
+The `markets` query supplies each reserve's liquidation threshold (and the user's
+eMode override); `userSupplies`/`userBorrows` supply the actual priced positions.
+Aave has no borrow factor, so a position's debt is simply the USD sum of its borrows.
 
 ### The liquidation views
 
@@ -115,15 +133,20 @@ a *surface* in price space, and any tool has to pick a path through it:
 ## Project structure
 
 ```
-kamino_liq/
-  config.py       endpoints, timeouts, and stable pegs
+lend_liq/
+  config.py       endpoints, timeouts, supported chains, and stable pegs
   models.py       typed dataclasses; health metrics are derived properties
-  api.py          KaminoClient — the REST API
-  service.py      orchestration: wallet -> Position objects
+  sources.py      address -> protocol loader (the protocol seam)
+  kamino/
+    api.py        KaminoClient — the Kamino REST API
+    service.py    orchestration: wallet -> Position objects
+  aave/
+    api.py        AaveClient — the Aave GraphQL API
+    service.py    orchestration: address -> Position objects
   liquidation.py  pure liquidation-price math (no I/O)
   render.py       Rich rendering
   cli.py          Typer app: report / simulate
-tests/            unit tests for the liquidation math
+tests/            unit tests for the loaders and liquidation math
 ```
 
 ## Development
@@ -131,11 +154,11 @@ tests/            unit tests for the liquidation math
 ```bash
 pip install -e ".[dev]"          # or: pip install -r requirements-dev.txt
 
-ruff format kamino_liq tests     # format (line length 100)
-ruff check kamino_liq tests      # lint (E/F/I/B/ANN/C4/UP/SIM)
+ruff format lend_liq tests       # format (line length 100)
+ruff check lend_liq tests        # lint (E/F/I/B/ANN/C4/UP/SIM)
 pytest                           # run the unit tests
-pytest --cov=kamino_liq          # with coverage (enforced at 100%)
-pylint kamino_liq                # static analysis (expects a clean 10.00/10)
+pytest --cov=lend_liq            # with coverage (enforced at 100%)
+pylint lend_liq                  # static analysis (expects a clean 10.00/10)
 ```
 
 The suite mocks all HTTP calls, so it runs offline and deterministically.
@@ -147,4 +170,4 @@ full gate (ruff + pytest + pylint) when a turn ends.
 
 This is an informational tool, not financial advice. Prices and on-chain state
 change continuously and liquidation depends on the protocol's live oracle at the
-moment of liquidation. Always verify against the official Kamino app.
+moment of liquidation. Always verify against the official Kamino or Aave app.

@@ -45,7 +45,7 @@ _CHAIN_OPTION = typer.Option(
 
 def _version_callback(show: bool) -> None:
     if show:
-        console.print(f"kamino-liq {__version__}")
+        console.print(f"lend-liq {__version__}")
         raise typer.Exit()
 
 

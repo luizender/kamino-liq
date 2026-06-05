@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 import pytest
 
-from kamino_liq.models import Borrow, Collateral, Position
+from lend_liq.models import Borrow, Collateral, Position
 
 
 @pytest.fixture

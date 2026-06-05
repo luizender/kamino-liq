@@ -1,6 +1,6 @@
 """Tests for the orchestration layer (wallet -> Position objects)."""
 
-from kamino_liq import service
+from lend_liq.kamino import service
 
 
 def _deposit(name, amount, price, liq):

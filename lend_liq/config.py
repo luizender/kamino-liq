@@ -2,7 +2,7 @@
 
 API_BASE = "https://api.kamino.finance"
 AAVE_API = "https://api.v3.aave.com/graphql"
-USER_AGENT = "kamino-liq/0.1"
+USER_AGENT = "lend-liq/0.1"
 
 HTTP_TIMEOUT = 30
 

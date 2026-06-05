@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from kamino_liq.aave_api import AaveApiError, AaveClient
+from lend_liq.aave.api import AaveApiError, AaveClient
 
 
 def make_client(payload):

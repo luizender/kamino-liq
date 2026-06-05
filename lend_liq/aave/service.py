@@ -9,8 +9,8 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterator
 
-from .aave_api import AaveClient
-from .models import Borrow, Collateral, Position
+from ..models import Borrow, Collateral, Position
+from .api import AaveClient
 
 
 def load_positions(client: AaveClient, user: str, chain_id: int) -> Iterator[Position]:

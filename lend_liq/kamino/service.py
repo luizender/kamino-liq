@@ -7,8 +7,8 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+from ..models import Borrow, Collateral, Position
 from .api import KaminoClient
-from .models import Borrow, Collateral, Position
 
 
 def load_positions(client: KaminoClient, wallet: str) -> Iterator[Position]:

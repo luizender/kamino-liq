@@ -2,7 +2,7 @@
 
 from typer.testing import CliRunner
 
-from kamino_liq import cli
+from lend_liq import cli
 
 runner = CliRunner()
 WALLET = "11111111111111111111111111111111"  # valid base58 (system program)
@@ -17,7 +17,7 @@ def patch_resolve(monkeypatch, protocol, loader):
 def test_version() -> None:
     result = runner.invoke(cli.app, ["--version"])
     assert result.exit_code == 0
-    assert "kamino-liq" in result.output
+    assert "lend-liq" in result.output
 
 
 def test_report_found(monkeypatch, sample_position) -> None:

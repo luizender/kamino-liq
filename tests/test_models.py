@@ -1,6 +1,6 @@
 """Tests for the domain models and their derived properties."""
 
-from kamino_liq.models import Borrow, Collateral, Position
+from lend_liq.models import Borrow, Collateral, Position
 
 
 def test_collateral_value_and_stability() -> None:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import requests
 
-from . import config
+from .. import config
 
 _MARKETS_QUERY = """query Markets($req: MarketsRequest!) {
   markets(request: $req) {

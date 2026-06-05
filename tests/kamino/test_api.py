@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from kamino_liq.api import KaminoClient
+from lend_liq.kamino.api import KaminoClient
 
 
 def make_client(payload, base_url="https://api.example.com"):

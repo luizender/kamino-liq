@@ -2,7 +2,7 @@
 
 import pytest
 
-from kamino_liq import sources
+from lend_liq import sources
 
 WALLET = "11111111111111111111111111111111"  # valid base58 (system program)
 EVM = "0x" + "ab" * 20
