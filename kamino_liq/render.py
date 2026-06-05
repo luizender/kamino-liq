@@ -174,9 +174,16 @@ def _render_crash(position: Position) -> None:
     table = _table(f"Global crash — liquidated if volatile collateral drops {scenario.drop:.1%}")
     table.add_column("Asset")
     table.add_column("Type")
-    for name in ("Current", "Liq. price"):
+    for name in ("Current", "Liq. price", "Drop"):
         table.add_column(name, justify="right")
     for collateral, price in scenario.prices:
         kind, suffix = ("stable", " (held)") if collateral.is_stable else ("volatile", "")
-        table.add_row(collateral.symbol, kind, _usd(collateral.price), f"{_usd(price)}{suffix}")
+        change = (price - collateral.price) / collateral.price if collateral.price else 0.0
+        table.add_row(
+            collateral.symbol,
+            kind,
+            _usd(collateral.price),
+            f"{_usd(price)}{suffix}",
+            f"{change:.1%}",
+        )
     console.print(table)

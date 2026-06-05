@@ -58,6 +58,8 @@ def test_render_crash_stable_and_volatile_rows(out) -> None:
     assert "Global crash" in text
     assert "(held)" in text  # stable row
     assert "volatile" in text  # volatile row
+    assert "Drop" in text  # per-asset drop column
+    assert "0.0%" in text  # held stable row drops nothing
 
 
 def test_render_crash_safe(out) -> None:
