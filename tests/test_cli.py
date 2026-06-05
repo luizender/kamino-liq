@@ -6,10 +6,12 @@ from kamino_liq import cli
 
 runner = CliRunner()
 WALLET = "11111111111111111111111111111111"  # valid base58 (system program)
+EVM = "0x" + "ab" * 20
 
 
-def patch_clients(monkeypatch, kamino):
-    monkeypatch.setattr(cli, "KaminoClient", lambda *a, **k: kamino)
+def patch_resolve(monkeypatch, protocol, loader):
+    """Replace the protocol seam so the CLI runs without any I/O."""
+    monkeypatch.setattr(cli.sources, "resolve", lambda wallet, p, c: (protocol, loader))
 
 
 def test_version() -> None:
@@ -18,24 +20,24 @@ def test_version() -> None:
     assert "kamino-liq" in result.output
 
 
-def test_report_found(monkeypatch, fake_kamino, sample_position) -> None:
-    patch_clients(monkeypatch, fake_kamino())
+def test_report_found(monkeypatch, sample_position) -> None:
     # Two positions exercise the rendering loop.
-    monkeypatch.setattr(
-        cli,
-        "load_positions",
-        lambda c, w: [sample_position, sample_position],
-    )
+    patch_resolve(monkeypatch, "kamino", lambda: [sample_position, sample_position])
     result = runner.invoke(cli.app, ["report", WALLET])
     assert result.exit_code == 0
     assert "Health factor" in result.output
 
 
-def test_report_not_found(monkeypatch, fake_kamino) -> None:
-    patch_clients(monkeypatch, fake_kamino())
-    monkeypatch.setattr(cli, "load_positions", lambda c, w: [])
+def test_report_not_found(monkeypatch) -> None:
+    patch_resolve(monkeypatch, "kamino", lambda: [])
     result = runner.invoke(cli.app, ["report", WALLET])
     assert "No Kamino Lend positions" in result.output
+
+
+def test_report_aave_not_found(monkeypatch) -> None:
+    patch_resolve(monkeypatch, "aave", lambda: [])
+    result = runner.invoke(cli.app, ["report", EVM, "--chain", "ethereum"])
+    assert "No Aave positions" in result.output
 
 
 def test_report_invalid_wallet() -> None:
@@ -43,15 +45,25 @@ def test_report_invalid_wallet() -> None:
     assert result.exit_code != 0
 
 
-def test_report_no_crash(monkeypatch, fake_kamino, sample_position) -> None:
-    patch_clients(monkeypatch, fake_kamino())
-    monkeypatch.setattr(cli, "load_positions", lambda c, w: [sample_position])
+def test_report_rejects_unknown_protocol() -> None:
+    # Typer rejects the enum choice before our code runs.
+    result = runner.invoke(cli.app, ["report", WALLET, "-P", "compound"])
+    assert result.exit_code != 0
+
+
+def test_report_rejects_unknown_chain() -> None:
+    result = runner.invoke(cli.app, ["report", EVM, "-c", "solana"])
+    assert result.exit_code != 0
+
+
+def test_report_no_crash(monkeypatch, sample_position) -> None:
+    patch_resolve(monkeypatch, "kamino", lambda: [sample_position])
     result = runner.invoke(cli.app, ["report", WALLET, "--no-crash"])
     assert result.exit_code == 0
 
 
-def test_report_watch_invokes_watch(monkeypatch, fake_kamino) -> None:
-    patch_clients(monkeypatch, fake_kamino())
+def test_report_watch_invokes_watch(monkeypatch) -> None:
+    patch_resolve(monkeypatch, "kamino", lambda: [])
     called = {}
     monkeypatch.setattr(cli, "_watch", lambda *a: called.setdefault("watched", True))
     result = runner.invoke(cli.app, ["report", WALLET, "--watch"])
@@ -59,26 +71,23 @@ def test_report_watch_invokes_watch(monkeypatch, fake_kamino) -> None:
     assert called.get("watched") is True
 
 
-def test_simulate_command(monkeypatch, fake_kamino, sample_position) -> None:
-    patch_clients(monkeypatch, fake_kamino())
-    monkeypatch.setattr(cli, "load_positions", lambda c, w: [sample_position])
+def test_simulate_command(monkeypatch, sample_position) -> None:
+    patch_resolve(monkeypatch, "kamino", lambda: [sample_position])
     result = runner.invoke(cli.app, ["simulate", WALLET, "-p", "SOL=50"])
     assert result.exit_code == 0
     assert "Simulation" in result.output
     assert "Simulated price changes" in result.output
 
 
-def test_simulate_warns_on_unheld_symbol(monkeypatch, fake_kamino, sample_position) -> None:
-    patch_clients(monkeypatch, fake_kamino())
-    monkeypatch.setattr(cli, "load_positions", lambda c, w: [sample_position])
+def test_simulate_warns_on_unheld_symbol(monkeypatch, sample_position) -> None:
+    patch_resolve(monkeypatch, "kamino", lambda: [sample_position])
     result = runner.invoke(cli.app, ["simulate", WALLET, "-p", "SOL=50", "-p", "BONK=1"])
     assert result.exit_code == 0
     assert "No position holds: BONK" in result.output
 
 
-def test_simulate_not_found(monkeypatch, fake_kamino) -> None:
-    patch_clients(monkeypatch, fake_kamino())
-    monkeypatch.setattr(cli, "load_positions", lambda c, w: [])
+def test_simulate_not_found(monkeypatch) -> None:
+    patch_resolve(monkeypatch, "kamino", lambda: [])
     result = runner.invoke(cli.app, ["simulate", WALLET, "-p", "SOL=50"])
     assert "No Kamino Lend positions" in result.output
 
@@ -101,7 +110,7 @@ def test_simulate_rejects_non_numeric_price() -> None:
 def test_watch_survives_errors(monkeypatch) -> None:
     calls = {"n": 0}
 
-    def report_once(wallet, client, crash):
+    def report_once(wallet, label, loader, crash):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("transient")  # exercises the except branch
@@ -112,5 +121,5 @@ def test_watch_survives_errors(monkeypatch) -> None:
 
     monkeypatch.setattr(cli, "_report_once", report_once)
     monkeypatch.setattr(cli.time, "sleep", sleep)
-    cli._watch("W", object(), crash=True, interval=1)
+    cli._watch("W", "Kamino Lend", lambda: [], crash=True, interval=1)
     assert calls["n"] == 2

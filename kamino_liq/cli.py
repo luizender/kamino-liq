@@ -2,22 +2,44 @@
 
 from __future__ import annotations
 
+import enum
 import time
 from datetime import datetime
 
 import typer
-from solders.pubkey import Pubkey
 
-from . import __version__
-from .api import KaminoClient
+from . import __version__, config, sources
 from .liquidation import apply_price_overrides
 from .render import console, render_position, render_simulation
-from .service import load_positions
+
+
+class Protocol(str, enum.Enum):
+    """Lending protocol selector for ``--protocol``."""
+
+    AUTO = "auto"
+    KAMINO = "kamino"
+    AAVE = "aave"
+
+
+# --chain choices, derived from the supported Aave deployments so the chain
+# names stay defined in one place (config.AAVE_CHAINS).
+Chain = enum.Enum("Chain", {name: name for name in config.AAVE_CHAINS}, type=str)
+
 
 app = typer.Typer(
     add_completion=False,
     no_args_is_help=True,
-    help="Inspect Kamino Lend positions and their liquidation prices (read-only).",
+    help="Inspect Kamino Lend and Aave positions and their liquidation prices (read-only).",
+)
+
+_PROTOCOL_OPTION = typer.Option(
+    Protocol.AUTO,
+    "--protocol",
+    "-P",
+    help="Protocol: kamino, aave, or auto (detect from the address).",
+)
+_CHAIN_OPTION = typer.Option(
+    None, "--chain", "-c", help="Aave chain (e.g. ethereum, arbitrum); required with aave."
 )
 
 
@@ -37,14 +59,16 @@ def _root(
         help="Show the version and exit.",
     ),
 ) -> None:
-    """Kamino liquidation-price toolkit."""
+    """Kamino and Aave liquidation-price toolkit."""
 
 
 @app.command()
 def report(
     wallet: str = typer.Argument(
-        ..., help="Solana wallet public key (read-only — never a private key)."
+        ..., help="Wallet address: a Solana key (Kamino) or EVM 0x address (Aave). Read-only."
     ),
+    protocol: Protocol = _PROTOCOL_OPTION,
+    chain: Chain | None = _CHAIN_OPTION,
     crash: bool = typer.Option(
         True, "--crash/--no-crash", help="Include the global market-crash scenario."
     ),
@@ -53,21 +77,21 @@ def report(
         30, "--interval", min=1, help="Seconds between refreshes in watch mode."
     ),
 ) -> None:
-    """Show the liquidation prices of WALLET's Kamino Lend positions."""
-    _validate_wallet(wallet)
-    client = KaminoClient()
-
+    """Show the liquidation prices of WALLET's lending positions."""
+    label, loader = _resolve(wallet, protocol, chain)
     if watch:
-        _watch(wallet, client, crash, interval)
+        _watch(wallet, label, loader, crash, interval)
     else:
-        _report_once(wallet, client, crash)
+        _report_once(wallet, label, loader, crash)
 
 
 @app.command("simulate")
 def simulate_command(
     wallet: str = typer.Argument(
-        ..., help="Solana wallet public key (read-only — never a private key)."
+        ..., help="Wallet address: a Solana key (Kamino) or EVM 0x address (Aave). Read-only."
     ),
+    protocol: Protocol = _PROTOCOL_OPTION,
+    chain: Chain | None = _CHAIN_OPTION,
     price: list[str] = typer.Option(
         None, "--price", "-p", help="Override an asset price, e.g. -p SOL=120 (repeatable)."
     ),
@@ -76,19 +100,17 @@ def simulate_command(
     ),
 ) -> None:
     """Recompute WALLET's liquidation health under hypothetical prices."""
-    _validate_wallet(wallet)
     overrides = _parse_overrides(price or [])
-    client = KaminoClient()
+    label, loader = _resolve(wallet, protocol, chain)
 
-    found = list(load_positions(client, wallet))
     held: set[str] = set()
-    for position in found:
+    for position in loader():
         render_simulation(position, apply_price_overrides(position, overrides), show_crash=crash)
         held.update(c.symbol.upper() for c in position.collateral)
         held.update(b.symbol.upper() for b in position.borrows)
 
     if not held:
-        console.print(f"[yellow]No Kamino Lend positions found for {wallet}.[/yellow]")
+        console.print(f"[yellow]No {label} positions found for {wallet}.[/yellow]")
         return
     unknown = sorted(set(overrides) - held)
     if unknown:
@@ -98,11 +120,12 @@ def simulate_command(
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-def _validate_wallet(wallet: str) -> None:
+def _resolve(wallet: str, protocol: Protocol, chain: Chain | None) -> tuple[str, sources.Loader]:
     try:
-        Pubkey.from_string(wallet)
-    except Exception as exc:  # solders raises a bare ValueError-like error
-        raise typer.BadParameter("not a valid Solana public key", param_hint="WALLET") from exc
+        name, loader = sources.resolve(wallet, protocol.value, chain.value if chain else None)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    return sources.LABELS[name], loader
 
 
 def _parse_overrides(items: list[str]) -> dict[str, float]:
@@ -120,18 +143,19 @@ def _parse_overrides(items: list[str]) -> dict[str, float]:
     return overrides
 
 
-def _report_once(wallet: str, client: KaminoClient, crash: bool) -> None:
+def _report_once(wallet: str, label: str, loader: sources.Loader, crash: bool) -> None:
     """Render every position, or a note if the wallet has none."""
-    found = list(load_positions(client, wallet))
+    found = list(loader())
     for position in found:
         render_position(position, show_crash=crash)
     if not found:
-        console.print(f"[yellow]No Kamino Lend positions found for {wallet}.[/yellow]")
+        console.print(f"[yellow]No {label} positions found for {wallet}.[/yellow]")
 
 
 def _watch(
     wallet: str,
-    client: KaminoClient,
+    label: str,
+    loader: sources.Loader,
     crash: bool,
     interval: int,
 ) -> None:
@@ -139,11 +163,11 @@ def _watch(
         while True:
             console.clear()
             console.print(
-                f"[dim]Kamino liquidation watch · {wallet} · {datetime.now():%Y-%m-%d %H:%M:%S}"
+                f"[dim]{label} liquidation watch · {wallet} · {datetime.now():%Y-%m-%d %H:%M:%S}"
                 f" · every {interval}s · Ctrl+C to stop[/dim]\n"
             )
             try:
-                _report_once(wallet, client, crash)
+                _report_once(wallet, label, loader, crash)
             except Exception as exc:  # pylint: disable=broad-exception-caught
                 # keep watching through transient API errors
                 console.print(f"[red]Refresh failed: {exc}[/red]")
