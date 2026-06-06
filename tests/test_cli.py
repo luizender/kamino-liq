@@ -40,6 +40,14 @@ def test_report_aave_not_found(monkeypatch) -> None:
     assert "No Aave positions" in result.output
 
 
+def test_report_aave_chain_all(monkeypatch, sample_position) -> None:
+    # "all" is a valid --chain choice (the every-chain sweep).
+    patch_resolve(monkeypatch, "aave", lambda: [sample_position])
+    result = runner.invoke(cli.app, ["report", EVM, "--chain", "all"])
+    assert result.exit_code == 0
+    assert "Health factor" in result.output
+
+
 def test_report_invalid_wallet() -> None:
     result = runner.invoke(cli.app, ["report", "not-a-key!"])
     assert result.exit_code != 0
@@ -84,6 +92,30 @@ def test_simulate_warns_on_unheld_symbol(monkeypatch, sample_position) -> None:
     result = runner.invoke(cli.app, ["simulate", WALLET, "-p", "SOL=50", "-p", "BONK=1"])
     assert result.exit_code == 0
     assert "No position holds: BONK" in result.output
+
+
+def test_simulate_amount_option(monkeypatch, sample_position) -> None:
+    patch_resolve(monkeypatch, "kamino", lambda: [sample_position])
+    result = runner.invoke(cli.app, ["simulate", WALLET, "-a", "SOL=+10"])
+    assert result.exit_code == 0
+    assert "Simulated amount changes" in result.output
+
+
+def test_simulate_warns_on_unheld_amount_symbol(monkeypatch, sample_position) -> None:
+    patch_resolve(monkeypatch, "kamino", lambda: [sample_position])
+    result = runner.invoke(cli.app, ["simulate", WALLET, "-a", "BONK=+1"])
+    assert result.exit_code == 0
+    assert "No position holds: BONK" in result.output
+
+
+def test_simulate_rejects_bad_amount_format() -> None:
+    result = runner.invoke(cli.app, ["simulate", WALLET, "-a", "SOL"])
+    assert result.exit_code != 0
+
+
+def test_simulate_rejects_non_numeric_amount() -> None:
+    result = runner.invoke(cli.app, ["simulate", WALLET, "-a", "SOL=lots"])
+    assert result.exit_code != 0
 
 
 def test_simulate_not_found(monkeypatch) -> None:
