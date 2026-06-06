@@ -111,9 +111,7 @@ def test_resolve_reserve_kamino(fake_kamino) -> None:
         }
         if r == "SOL_RSV"
         else (
-            {"history": [{}]}
-            if r == "USDT_RSV"
-            else ({"history": []} if r == "PYTH_RSV" else None)
+            {"history": [{}]} if r == "USDT_RSV" else ({"history": []} if r == "PYTH_RSV" else None)
         )
     )
 
