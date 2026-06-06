@@ -8,7 +8,13 @@ from rich import box
 from rich.console import Console
 from rich.table import Table
 
-from .liquidation import CrashStatus, crash_scenario, single_asset_levels
+from .liquidation import (
+    CrashScenario,
+    CrashStatus,
+    LiquidationLevel,
+    crash_scenario,
+    single_asset_levels,
+)
 from .models import Borrow, Collateral, Position
 
 console = Console()
@@ -52,20 +58,26 @@ def render_simulation(original: Position, simulated: Position, show_crash: bool 
         f"  ·  obligation {simulated.address[:8]}…"
     )
     _render_overrides(original, simulated)
-    _render_body(simulated, show_crash)
+    _render_body(simulated, show_crash, original=original)
 
 
-def _render_body(position: Position, show_crash: bool) -> None:
+def _render_body(position: Position, show_crash: bool, original: Position | None = None) -> None:
     _render_holdings(position)
     if not position.has_debt:
         console.print("[green]No debt — this position cannot be liquidated.[/green]\n")
         return
     _render_health(position)
     console.print()
-    _render_single_asset(position)
+    if original is None:
+        _render_single_asset(position)
+    else:
+        _render_single_asset_comparison(original, position)
     if show_crash and len(position.collateral) > 1:
         console.print()
-        _render_crash(position)
+        if original is None:
+            _render_crash(position)
+        else:
+            _render_crash_comparison(original, position)
     console.print()
 
 
@@ -159,38 +171,73 @@ def _render_single_asset(position: Position) -> None:
     for name in ("Current", "Liq. price", "Buffer"):
         table.add_column(name, justify="right")
     for level in single_asset_levels(position):
-        if level.is_safe:
-            table.add_row(
-                level.collateral.symbol,
-                _usd(level.collateral.price),
-                "[green]safe at $0[/green]",
-                "—",
-            )
-        else:
-            table.add_row(
-                level.collateral.symbol,
-                _usd(level.collateral.price),
-                _usd(level.price),
-                f"{level.buffer:.1%} drop",
-            )
+        table.add_row(
+            level.collateral.symbol,
+            _usd(level.collateral.price),
+            _liq_price_cell(level),
+            _buffer_cell(level),
+        )
     console.print(table)
+
+
+def _render_single_asset_comparison(original: Position, simulated: Position) -> None:
+    table = _table("Liquidation price — single asset drops (others held constant)")
+    table.add_column("Asset")
+    for name in ("Price", "Real liq.", "Sim. liq.", "Sim. buffer"):
+        table.add_column(name, justify="right")
+    for real, sim in zip(
+        single_asset_levels(original), single_asset_levels(simulated), strict=True
+    ):
+        table.add_row(
+            sim.collateral.symbol,
+            _usd(sim.collateral.price),
+            _liq_price_cell(real),
+            _liq_price_cell(sim),
+            _buffer_cell(sim),
+        )
+    console.print(table)
+
+
+def _liq_price_cell(level: LiquidationLevel) -> str:
+    return "[green]safe at $0[/green]" if level.is_safe else _usd(level.price)
+
+
+def _buffer_cell(level: LiquidationLevel) -> str:
+    return "—" if level.is_safe else f"{level.buffer:.1%} drop"
+
+
+_CRASH_MESSAGES: dict[CrashStatus, tuple[str, str]] = {
+    CrashStatus.SAFE: (
+        "green",
+        "stable collateral alone covers the debt — volatile assets can fall to $0.",
+    ),
+    CrashStatus.EXCEEDED: (
+        "red",
+        "debt exceeds stable collateral and there are no volatile assets to absorb it.",
+    ),
+    CrashStatus.AT_RISK: ("red", "already at or past the liquidation threshold."),
+    CrashStatus.VOLATILE_DEBT: (
+        "yellow",
+        "debt includes volatile assets that would also move in a crash, so a uniform "
+        "collateral crash is not a meaningful single scenario. Use `simulate` to model "
+        "specific prices.",
+    ),
+}
+
+
+def _crash_summary(scenario: CrashScenario) -> str:
+    """One labeled line describing a crash scenario (used by the comparison view)."""
+    if scenario.status is CrashStatus.TRIGGERABLE:
+        return f"liquidated if volatile collateral drops {scenario.drop:.1%}"
+    color, text = _CRASH_MESSAGES[scenario.status]
+    return f"[{color}]{text}[/{color}]"
 
 
 def _render_crash(position: Position) -> None:
     scenario = crash_scenario(position)
-    messages = {
-        CrashStatus.SAFE: "[green]Global crash: stable collateral alone covers the debt — "
-        "volatile assets can fall to $0.[/green]",
-        CrashStatus.EXCEEDED: "[red]Global crash: debt exceeds stable collateral and there are "
-        "no volatile assets to absorb it.[/red]",
-        CrashStatus.AT_RISK: "[red]Global crash: already at or past the liquidation "
-        "threshold.[/red]",
-        CrashStatus.VOLATILE_DEBT: "[yellow]Global crash: debt includes volatile assets that "
-        "would also move in a crash, so a uniform collateral crash is not a meaningful single "
-        "scenario. Use `simulate` to model specific prices.[/yellow]",
-    }
     if scenario.status is not CrashStatus.TRIGGERABLE:
-        console.print(messages[scenario.status])
+        color, text = _CRASH_MESSAGES[scenario.status]
+        console.print(f"[{color}]Global crash: {text}[/{color}]")
         return
 
     table = _table(f"Global crash — liquidated if volatile collateral drops {scenario.drop:.1%}")
@@ -205,6 +252,37 @@ def _render_crash(position: Position) -> None:
             collateral.symbol,
             kind,
             _usd(collateral.price),
+            f"{_usd(price)}{suffix}",
+            f"{change:.1%}",
+        )
+    console.print(table)
+
+
+def _render_crash_comparison(original: Position, simulated: Position) -> None:
+    real = crash_scenario(original)
+    sim = crash_scenario(simulated)
+    if real.status is not CrashStatus.TRIGGERABLE or sim.status is not CrashStatus.TRIGGERABLE:
+        console.print(f"Real:      {_crash_summary(real)}")
+        console.print(f"Simulated: {_crash_summary(sim)}")
+        return
+
+    real_prices = {c.symbol: p for c, p in real.prices}
+    table = _table(
+        f"Global crash — liquidated if volatile collateral drops {sim.drop:.1%} "
+        f"(real: {real.drop:.1%})"
+    )
+    table.add_column("Asset")
+    table.add_column("Type")
+    for name in ("Price", "Real liq.", "Sim. liq.", "Sim. drop"):
+        table.add_column(name, justify="right")
+    for collateral, price in sim.prices:
+        kind, suffix = ("stable", " (held)") if collateral.is_stable else ("volatile", "")
+        change = (price - collateral.price) / collateral.price if collateral.price else 0.0
+        table.add_row(
+            collateral.symbol,
+            kind,
+            _usd(collateral.price),
+            _usd(real_prices[collateral.symbol]),
             f"{_usd(price)}{suffix}",
             f"{change:.1%}",
         )

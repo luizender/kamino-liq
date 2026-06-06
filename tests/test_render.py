@@ -86,6 +86,48 @@ def test_render_crash_volatile_debt(out) -> None:
     assert "simulate" in out.getvalue()
 
 
+def test_render_crash_comparison_both_triggerable(out) -> None:
+    usdc = Collateral("USDC", 100, 1.0, 0.9)  # stable, cap 90
+    sol = Collateral("SOL", 10, 100, 0.8)  # volatile, cap 800
+    original = position([usdc, sol], 490, [Borrow("USDC", 490, 1.0)])  # remaining 0.5
+    simulated = apply_overrides(original, {}, {"SOL": AmountChange(10.0, is_delta=True)})
+    render._render_crash_comparison(original, simulated)
+    text = out.getvalue()
+    assert "Real liq." in text
+    assert "Sim. liq." in text
+    assert "Sim. drop" in text
+    assert "$50.00" in text  # real SOL liq (100 * 0.5)
+    assert "$25.00" in text  # simulated SOL liq (vol cap doubles -> remaining 0.25)
+    assert "-75.0%" in text  # simulated drop
+    assert "real:" in text  # title carries the real drop
+    assert "50.0%" in text  # real drop (only appears in the title)
+
+
+def test_render_crash_comparison_status_mismatch(out) -> None:
+    usdc = Collateral("USDC", 100, 1.0, 0.9)
+    sol = Collateral("SOL", 10, 100, 0.8)
+    original = position([usdc, sol], 490, [Borrow("USDT", 490, 1.0)])  # triggerable
+    simulated = apply_overrides(original, {}, {"USDC": AmountChange(600.0, is_delta=False)})
+    render._render_crash_comparison(original, simulated)  # sim stable cap 540 >= 490 -> SAFE
+    text = out.getvalue()
+    assert "Real:" in text
+    assert "Simulated:" in text
+    assert "liquidated if volatile collateral drops 50.0%" in text
+    assert "stable collateral alone covers" in text
+    assert "Sim. liq." not in text  # no table drawn on a status mismatch
+
+
+def test_render_simulation_renders_crash_comparison(out) -> None:
+    usdc = Collateral("USDC", 100, 1.0, 0.9)
+    sol = Collateral("SOL", 10, 100, 0.8)  # two collaterals -> crash section shown
+    original = position([usdc, sol], 490, [Borrow("USDC", 490, 1.0)])
+    simulated = apply_overrides(original, {}, {"SOL": AmountChange(10.0, is_delta=True)})
+    render.render_simulation(original, simulated)
+    text = out.getvalue()
+    assert "Global crash" in text
+    assert "Sim. drop" in text  # crash comparison column (single-asset uses "Sim. buffer")
+
+
 def test_render_simulation_shows_changes_and_verdict(out) -> None:
     sol = Collateral("SOL", 100, 100, 0.8)
     original = position([sol], 4000, [Borrow("USDC", 4000, 1.0)])
@@ -96,6 +138,8 @@ def test_render_simulation_shows_changes_and_verdict(out) -> None:
     assert "Simulated price changes" in text
     assert "2.00 →" in text  # original HF 8000/4000; simulated 3200/4000 = 0.80
     assert "would be liquidated" in text
+    assert "Real liq." in text  # single-asset table compares real vs simulated
+    assert "Sim. liq." in text
 
 
 def test_render_simulation_shows_amount_changes(out) -> None:
@@ -107,6 +151,9 @@ def test_render_simulation_shows_amount_changes(out) -> None:
     assert "Simulated amount changes" in text
     assert "150.0000" in text  # 100 + 50 SOL deposited
     assert "+50.0%" in text  # amount grew by half
+    # Depositing 50 more SOL lowers the liquidation price: real $50 -> simulated $33.33.
+    assert "$50.00" in text  # real liq. price (4000 / (100 * 0.8))
+    assert "$33.33" in text  # simulated liq. price (4000 / (150 * 0.8))
 
 
 def test_render_simulation_no_matching_changes(out) -> None:
