@@ -33,7 +33,8 @@ $ lend-liq report <YOUR_WALLET_PUBKEY>
 ## Features
 
 - **Two protocols** — Kamino Lend on Solana and Aave V3 across its EVM chains
-  (`--chain`), behind one interface; the protocol is auto-detected from the address.
+  (`--chain`), behind one interface; the protocol is auto-detected from the address
+  (`--protocol` overrides detection).
 - **Live position** — fetches your actual deposits/borrows; no manual data entry.
 - **Accurate liquidation math** — uses each protocol's own per-asset prices and
   liquidation thresholds (and, for Kamino, borrow-factor-adjusted debt), so the
@@ -41,11 +42,12 @@ $ lend-liq report <YOUR_WALLET_PUBKEY>
 - **Two liquidation views** — the price of each collateral if *only that asset
   drops*, plus a *global market-crash* scenario where volatile assets fall
   together while stablecoins hold.
-- **What-if simulation** — override any asset's price (`simulate -p SOL=120`) and
-  recompute the health, liquidation prices, and crash scenario at those prices —
-  for the crashes that aren't uniform.
+- **What-if simulation** — override any asset's price (`simulate -p SOL=120`),
+  collateral amount (`-a SOL=+10`), or borrow amount (`-b USDC=-5000`), and recompute
+  health, liquidation prices, and crash scenario at those hypothetical values. Supports
+  adding assets not currently in the position using the protocol's live reserve catalog.
 - **Multi-market** — finds your loans across every Kamino market (Main, JLP,
-  Jito, …) in a single call.
+  Jito, …) in a single call; for Aave, scans all 14 supported EVM chains by default.
 - **Watch mode** — refresh continuously until you stop it.
 - **No API key** — every data source is public.
 
@@ -72,14 +74,26 @@ After `pip install -e .` the entry point is `lend-liq`; otherwise use
 # Liquidation report for a wallet (all your loans, every market)
 lend-liq report <WALLET>
 
-# Aave: pass an EVM address and the chain (protocol is auto-detected)
+# Aave: pass an EVM address; scans all chains by default, or pin one with --chain
+lend-liq report 0x<EVM_ADDRESS>
 lend-liq report 0x<EVM_ADDRESS> --chain arbitrum
 
 # Skip the crash scenario
 lend-liq report <WALLET> --no-crash
 
-# What-if: recompute health at hypothetical prices (-p is repeatable)
+# What-if: override prices (-p), collateral amounts (-a), or borrow amounts (-b)
+# All flags are repeatable; mix and match freely
 lend-liq simulate <WALLET> -p SOL=120 -p JupSOL=110
+lend-liq simulate <WALLET> -a JupSOL=+5000        # add 5000 JupSOL to collateral
+lend-liq simulate <WALLET> -b USDC=+500000        # add 500k USDC to borrows
+lend-liq simulate <WALLET> -p SOL=80 -a SOL=-10000 -b USDT=+100000
+
+# Simulate an asset not yet in the position (resolved from the live reserve catalog)
+lend-liq simulate <WALLET> -a USDC=1000000
+
+# Force a specific protocol (auto-detected from address shape by default)
+lend-liq report <WALLET> --protocol kamino
+lend-liq report 0x<EVM_ADDRESS> --protocol aave
 
 # Watch mode: refresh every 15s until Ctrl+C
 lend-liq report <WALLET> --watch --interval 15
@@ -104,7 +118,9 @@ market, and `/klend/loans/{pubkey}` returns each one's underlying deposit amount
 live prices, per-asset liquidation thresholds, and borrow-factor-adjusted debt —
 already computed the way the Kamino app shows them.
 
-**Aave V3 (EVM, GraphQL)** — two POSTs to the AaveKit API (`api.v3.aave.com/graphql`):
+**Aave V3 (EVM, GraphQL)** — two POSTs to the AaveKit API (`api.v3.aave.com/graphql`)
+per chain; by default all 14 supported chains are swept in parallel, matching Kamino's
+all-markets behaviour. Pass `--chain` to pin a single deployment:
 
 | Data | Source |
 |------|--------|
@@ -126,9 +142,15 @@ a *surface* in price space, and any tool has to pick a path through it:
   keep their peg; reports the common drop % (and per-asset price) that triggers
   liquidation. This model holds the debt fixed, so it is suppressed when the debt
   itself is volatile (a real crash would move it too) — use `simulate` there.
-- **Simulation** (`simulate`) — set explicit prices for any assets and recompute
-  everything at once, for crashes that aren't uniform. Repricing a borrowed asset
-  rescales Kamino's borrow-factor-adjusted debt by its current aggregate factor.
+- **Simulation** (`simulate`) — override prices (`-p`), collateral amounts (`-a`),
+  or borrow amounts (`-b`) for any assets and recompute everything at once, for
+  scenarios that aren't uniform. Amount flags accept `+`/`-` prefixes for relative
+  adjustments or a bare number to set an absolute value. Assets not currently held
+  can be added; their live price and liquidation threshold are fetched from the
+  protocol's reserve catalog. The simulation view renders a side-by-side comparison
+  (real vs. simulated liquidation prices and crash thresholds) so the impact is
+  immediately visible. Repricing a borrowed asset rescales Kamino's
+  borrow-factor-adjusted debt by its current aggregate factor.
 
 ## Project structure
 
